@@ -1,0 +1,266 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--ebus-background);
+  --color-surface: var(--ebus-surface);
+  --color-surface-raised: var(--ebus-surface-raised);
+  --color-background-soft: var(--ebus-background-soft);
+  --color-border: var(--ebus-border);
+  --color-border-strong: var(--ebus-border-strong);
+  --color-primary: var(--ebus-primary);
+  --color-primary-strong: var(--ebus-primary-strong);
+  --color-success: var(--ebus-success);
+  --color-danger: var(--ebus-danger);
+  --color-foreground: var(--ebus-foreground);
+  --color-muted: var(--ebus-muted);
+  --color-muted-strong: var(--ebus-muted-strong);
+  --font-sans: var(--ebus-font-sans);
+  --font-mono: var(--ebus-font-mono);
+}
+
+:root {
+  color-scheme: dark;
+  font-family: var(--ebus-font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --ebus-background: #08111d;
+  --ebus-background-soft: #0c1727;
+  --ebus-surface: #101b2d;
+  --ebus-surface-raised: #16273d;
+  --ebus-surface-strong: #1c2f45;
+  --ebus-border: #24364b;
+  --ebus-border-strong: #3b536e;
+  --ebus-primary: #60a5fa;
+  --ebus-primary-strong: #7bb7ff;
+  --ebus-primary-soft: rgba(96, 165, 250, 0.14);
+  --ebus-success: #34d399;
+  --ebus-success-soft: rgba(52, 211, 153, 0.15);
+  --ebus-warning: #fbbf24;
+  --ebus-danger: #f87171;
+  --ebus-danger-soft: rgba(248, 113, 113, 0.14);
+  --ebus-foreground: #f8fafc;
+  --ebus-muted: #a7b5c9;
+  --ebus-muted-strong: #d7e1ef;
+
+  --ebus-font-sans: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --ebus-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+
+  --ebus-space-1: 0.25rem;
+  --ebus-space-2: 0.5rem;
+  --ebus-space-3: 0.75rem;
+  --ebus-space-4: 1rem;
+  --ebus-space-5: 1.25rem;
+  --ebus-space-6: 1.5rem;
+  --ebus-space-8: 2rem;
+  --ebus-space-10: 2.5rem;
+  --ebus-space-12: 3rem;
+  --ebus-space-16: 4rem;
+
+  --ebus-radius-sm: 0.375rem;
+  --ebus-radius-md: 0.625rem;
+  --ebus-radius-lg: 0.875rem;
+  --ebus-radius-xl: 1.25rem;
+  --ebus-radius-full: 9999px;
+
+  --ebus-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --ebus-shadow-md: 0 8px 24px rgba(3, 7, 18, 0.26);
+  --ebus-shadow-lg: 0 18px 42px rgba(2, 6, 23, 0.34);
+
+  --ebus-border-width: 1px;
+  --ebus-content-max-width: 72rem;
+  --ebus-focus-ring: 0 0 0 3px rgba(96, 165, 250, 0.38);
+
+  --ebus-body-background: radial-gradient(circle at top, rgba(96, 165, 250, 0.08), transparent 32%), var(--ebus-background);
+
+  color: var(--ebus-foreground);
+  background: var(--ebus-body-background);
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+  scroll-behavior: smooth;
+  background: var(--ebus-background);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  color: var(--ebus-foreground);
+  background: var(--ebus-body-background);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+#root {
+  min-height: 100vh;
+  min-height: 100svh;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+img,
+svg,
+video,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p {
+  margin: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--ebus-foreground);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+h1 {
+  font-size: clamp(2rem, 1.6rem + 2vw, 3.5rem);
+}
+
+h2 {
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.3rem);
+}
+
+h3 {
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.7rem);
+}
+
+p {
+  color: var(--ebus-muted);
+}
+
+a {
+  color: var(--ebus-primary);
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+  transition: color 150ms ease, opacity 150ms ease;
+}
+
+a:hover {
+  color: var(--ebus-primary-strong);
+}
+
+a:active {
+  opacity: 0.9;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:not(:disabled),
+[type='button']:not(:disabled),
+[type='reset']:not(:disabled),
+[type='submit']:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: var(--ebus-space-3) var(--ebus-space-4);
+  color: var(--ebus-foreground);
+  background: var(--ebus-surface);
+  border: var(--ebus-border-width) solid var(--ebus-border-strong);
+  border-radius: var(--ebus-radius-md);
+  transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease;
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--ebus-primary);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--ebus-primary);
+  box-shadow: var(--ebus-focus-ring);
+  outline: none;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ebus-muted);
+  opacity: 1;
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+select {
+  color-scheme: dark;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ebus-primary);
+  outline-offset: 3px;
+  box-shadow: var(--ebus-focus-ring);
+}
+
+::selection {
+  color: var(--ebus-foreground);
+  background: rgba(96, 165, 250, 0.3);
+}
+
+@media (max-width: 640px) {
+  body {
+    font-size: 0.9375rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
