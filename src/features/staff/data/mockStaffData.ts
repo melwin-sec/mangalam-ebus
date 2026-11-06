@@ -33,7 +33,7 @@ export const mockStaffBuses: StaffBus[] = [
 ]
 
 export const mockStaffStudents: StaffStudent[] = [
-  { studentId: 'STU-2041', name: 'Aarav Nair', busId: 'bus-012', passStatus: 'active' },
+  { studentId: 'STU-2041', name: 'Aarav Nair', busId: 'bus-012', passStatus: 'pending' },
   { studentId: 'DEMO-STU-002', name: 'Diya Menon', busId: 'bus-012', passStatus: 'pending' },
   { studentId: 'DEMO-STU-003', name: 'Kabir Rao', busId: 'bus-012', passStatus: 'review' },
   { studentId: 'DEMO-STU-004', name: 'Meera Iyer', busId: 'bus-012', passStatus: 'active' },

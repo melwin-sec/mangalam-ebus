@@ -14,7 +14,7 @@ This is a prototype, not a live transport service. It is not connected to instit
 | `/student` | Student dashboard with synthetic student, pass, route, and application details |
 | `/student/pass` | Read-only illustrative digital pass; not valid for travel |
 | `/student/transport` | Fictional route, stop, and schedule information |
-| `/student/application` | Status and history for the seeded demo application, with correction-request editing and resubmission |
+| `/student/application` | First-time demo application form, then status and history with correction editing and resubmission |
 | `/student/profile` | Synthetic student profile |
 | `/staff` | Staff dashboard with data-derived counts for the demonstration staff member's assigned bus |
 | `/staff/applications` | Demo review queue for student bus-pass applications |
@@ -45,7 +45,7 @@ src/
 
 The application is frontend-only. Student and staff transport screens use fictional, local mock data; no backend, database, real student records, or institutional service is connected. Authentication and authorization are not implemented. Staff login does not send or save credentials. The multi-bus view is a coordinator-style visual demonstration, not an access-controlled workflow. The student pass is explicitly marked `PROTOTYPE — NOT VALID FOR TRAVEL`.
 
-Demo workflow state is persisted in the browser's `localStorage`, so applications, review history, and issued demo passes can survive page reloads in that browser. On the staff dashboard, choosing **Reset demo data** and confirming returns the workflow to its fictional default data and clears the saved workflow state. Malformed, unsupported, or otherwise invalid saved data may be ignored; in that case, the fictional defaults are restored. This is browser-local prototype persistence only, not backend storage.
+Demo workflow state is persisted in the browser's `localStorage`, so applications, review history, and issued demo passes can survive page reloads in that browser. In a fresh browser state, the demonstration student starts with no application or issued pass and can complete the application, correction, review, approval, and separate pass-issuance lifecycle. Existing fictional staff queue examples and Meera Iyer's issued-pass example remain available. Existing valid saved browser workflow data continues to load as saved; it is not replaced by the revised defaults. On the staff dashboard, choosing **Reset demo data** and confirming returns the workflow to the current fictional default data and clears the saved workflow state. Malformed, unsupported, or otherwise invalid saved data may be ignored; in that case, the fictional defaults are restored. This is browser-local prototype persistence only, not backend storage.
 
 The demo review lifecycle is `submitted` → `under_review` → either `approved` or `corrections_requested`; a student may edit permitted fields and resubmit a corrected application, returning it to `submitted`. Approval is only a prototype review outcome and does not grant institutional approval or travel permission.
 
@@ -79,7 +79,7 @@ Vite prints the local development URL in the terminal.
 
 Tests use Vitest with jsdom, React Testing Library, `user-event`, and `jest-dom` matchers. They exercise required-field validation, accessible error descriptions, focus management, password visibility, prototype-only submission behavior, role-specific login pages, the student portal, the staff portal, roster search/status filtering, and the not-found route.
 
-The student and staff portal test suites cover the synthetic dashboard, transport, pass, profile, route navigation, the seeded approved application and its alignment across student and staff views, dashboard status consistency, persistence and restoration, malformed and unsupported saved data, storage failures, reset behavior, valid and invalid application transitions, correction-note validation and resubmission, status history, reference uniqueness, roster search, bus summary reconciliation, and pass-issuance safeguards.
+The student and staff portal test suites cover the synthetic dashboard, transport, pass, profile, route navigation, the fresh student application lifecycle and student/staff alignment, dashboard status consistency, persistence and restoration, malformed and unsupported saved data, storage failures, reset behavior, valid and invalid application transitions, correction-note validation and resubmission, status history, reference uniqueness, roster search, bus summary reconciliation, and pass-issuance safeguards.
 
 Run the test, lint, and build checks from the project directory with:
 

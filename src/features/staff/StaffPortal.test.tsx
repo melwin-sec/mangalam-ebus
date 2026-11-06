@@ -8,13 +8,22 @@ import App from '../../App'
 import { StudentApplicationProvider } from '../student/context/StudentApplicationProvider'
 import { useStudentApplications } from '../student/context/useStudentApplications'
 import type { ApplicationReviewStatus } from '../student/types'
+import StudentApplicationPage from '../student/pages/StudentApplicationPage'
+import StudentPassPage from '../student/pages/StudentPassPage'
+import { mockStudent } from '../student/data/mockStudentData'
+import StaffApplicationsPage from './pages/StaffApplicationsPage'
 import StaffApplicationDetailPage from './pages/StaffApplicationDetailPage'
 import { mockStaffBuses, mockStaffStudents } from './data/mockStaffData'
+import type { WorkflowActionResult } from '../student/context/studentApplicationContext'
 import {
   defaultIssuedPasses,
   demoQueueApplications,
   saveDemoState,
 } from '../student/lib/demoStorage'
+
+function actionValue<T>(result: WorkflowActionResult<T>): T | null {
+  return result.ok ? result.value : null
+}
 
 function StaffDetailRouteHarness({ reference }: { reference: string }) {
   return (
@@ -24,6 +33,27 @@ function StaffDetailRouteHarness({ reference }: { reference: string }) {
           <Route path="/staff/applications/:reference" element={<StaffApplicationDetailPage />} />
         </Routes>
       </MemoryRouter>
+    </StudentApplicationProvider>
+  )
+}
+
+function SharedStudentStaffWorkflowHarness() {
+  return (
+    <StudentApplicationProvider>
+      <div>
+        <MemoryRouter initialEntries={['/student/application']}>
+          <StudentApplicationPage />
+        </MemoryRouter>
+        <MemoryRouter initialEntries={['/student/pass']}>
+          <StudentPassPage />
+        </MemoryRouter>
+        <MemoryRouter initialEntries={['/staff/applications']}>
+          <Routes>
+            <Route path="/staff/applications" element={<StaffApplicationsPage />} />
+            <Route path="/staff/applications/:reference" element={<StaffApplicationDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </div>
     </StudentApplicationProvider>
   )
 }
@@ -55,7 +85,7 @@ function ApplicationTransitionHarness() {
   }
 
   const runTransition = (status: ApplicationReviewStatus, note: string) => {
-    const updated = updateApplicationStatus(application.reference, status, note)
+    const updated = actionValue(updateApplicationStatus(application.reference, status, note))
     setResult(updated ? `updated:${updated.reviewStatus}` : `blocked:${application.reviewStatus}`)
   }
 
@@ -86,19 +116,19 @@ function ApplicationTransitionHarness() {
       <button
         type="button"
         onClick={() => {
-          const updated = resubmitApplication(application.reference, {
+          const updated = actionValue(resubmitApplication(application.reference, {
             routeName: 'North Campus Loop',
             boardingPoint: 'Library Plaza Stop',
-          })
+          }))
           setResult(updated ? `updated:${updated.reviewStatus}` : `blocked:${application.reviewStatus}`)
         }}
       >
         Resubmit application
       </button>
-      <button type="button" onClick={() => setResult(updateApplicationStatus('MISSING-REF', 'under_review', 'Nope') ? 'allowed' : 'missing')}>
+      <button type="button" onClick={() => setResult(updateApplicationStatus('MISSING-REF', 'under_review', 'Nope').ok ? 'allowed' : 'missing')}>
         Check missing reference
       </button>
-      <button type="button" onClick={() => setResult(resubmitApplication('MISSING-REF', { routeName: 'Route', boardingPoint: 'Stop' }) ? 'allowed' : 'missing-resubmit')}>
+      <button type="button" onClick={() => setResult(resubmitApplication('MISSING-REF', { routeName: 'Route', boardingPoint: 'Stop' }).ok ? 'allowed' : 'missing-resubmit')}>
         Check missing resubmit reference
       </button>
       <button type="button" onClick={() => runTransition('approved', 'Invalid direct approval')}>
@@ -123,7 +153,7 @@ function IssuePassGuardHarness({ scenario }: { scenario: string }) {
     const startingIssuedCount = issuedPasses.length
     setBeforeIssuedCount(startingIssuedCount)
 
-    const created = createApplication({
+    const created = actionValue(createApplication({
       routeName:
         scenario === 'unapproved' || scenario === 'invalid-boarding-point'
           ? 'North Campus Loop'
@@ -136,7 +166,7 @@ function IssuePassGuardHarness({ scenario }: { scenario: string }) {
             : 'Residence Gate 1',
       studentId: targetStudentId,
       studentName: `Demo ${scenario.replace('-', ' ')}`,
-    })
+    }))
 
     if (!created) {
       setResult('blocked')
@@ -148,14 +178,14 @@ function IssuePassGuardHarness({ scenario }: { scenario: string }) {
     setHistoryCount(created.statusHistory.length)
 
     if (scenario === 'unapproved') {
-      const issued = issuePass(created.reference, 'bus-012')
+      const issued = actionValue(issuePass(created.reference, 'bus-012'))
       setResult(issued ? `issued:${issued.reference}` : 'blocked')
       return
     }
 
-    const underReview = updateApplicationStatus(created.reference, 'under_review', 'Review started.')
+    const underReview = actionValue(updateApplicationStatus(created.reference, 'under_review', 'Review started.'))
     const approved = underReview
-      ? updateApplicationStatus(created.reference, 'approved', 'Approved by demo staff')
+      ? actionValue(updateApplicationStatus(created.reference, 'approved', 'Approved by demo staff'))
       : null
 
     if (!approved) {
@@ -168,26 +198,26 @@ function IssuePassGuardHarness({ scenario }: { scenario: string }) {
     setHistoryCount(approved.statusHistory.length)
 
     if (scenario === 'route-mismatch') {
-      const issued = issuePass(created.reference, 'bus-012')
+      const issued = actionValue(issuePass(created.reference, 'bus-012'))
       setResult(issued ? `issued:${issued.reference}` : 'blocked')
       return
     }
 
     if (scenario === 'unsupported-bus') {
-      const issued = issuePass(created.reference, 'bus-999')
+      const issued = actionValue(issuePass(created.reference, 'bus-999'))
       setResult(issued ? `issued:${issued.reference}` : 'blocked')
       return
     }
 
     if (scenario === 'invalid-boarding-point') {
-      const issued = issuePass(created.reference, 'bus-012')
+      const issued = actionValue(issuePass(created.reference, 'bus-012'))
       setResult(issued ? `issued:${issued.reference}` : 'blocked')
       return
     }
 
     if (scenario === 'duplicate-issuance') {
-      const firstIssue = issuePass(created.reference, 'bus-021')
-      const secondIssue = issuePass(created.reference, 'bus-021')
+      const firstIssue = actionValue(issuePass(created.reference, 'bus-021'))
+      const secondIssue = actionValue(issuePass(created.reference, 'bus-021'))
       setResult(
         secondIssue ? `issued:${secondIssue.reference}` : firstIssue ? 'duplicate-blocked' : 'duplicate-blocked',
       )
@@ -195,7 +225,7 @@ function IssuePassGuardHarness({ scenario }: { scenario: string }) {
     }
 
     if (scenario === 'valid-issuance') {
-      const issued = issuePass(created.reference, 'bus-021')
+      const issued = actionValue(issuePass(created.reference, 'bus-021'))
       setResult(issued ? `issued:${issued.reference}` : 'blocked')
     }
   }
@@ -223,19 +253,19 @@ function PersistedWorkflowHarness() {
   const pass = issuedPasses.find((item) => item.studentId === studentId)
 
   const runWorkflow = () => {
-    const created = createApplication({
+    const created = actionValue(createApplication({
       routeName: 'West Residence Shuttle',
       boardingPoint: 'Residence Gate 1',
       studentId,
       studentName: 'Persisted Workflow Demo',
-    })
+    }))
     if (!created) return
 
-    const underReview = updateApplicationStatus(created.reference, 'under_review', 'Review started.')
+    const underReview = actionValue(updateApplicationStatus(created.reference, 'under_review', 'Review started.'))
     const approved = underReview
-      ? updateApplicationStatus(created.reference, 'approved', 'Approved for the persistence test.')
+      ? actionValue(updateApplicationStatus(created.reference, 'approved', 'Approved for the persistence test.'))
       : null
-    if (approved) issuePass(approved.reference, 'bus-021')
+    if (approved) actionValue(issuePass(approved.reference, 'bus-021'))
   }
 
   return (
@@ -250,6 +280,86 @@ function PersistedWorkflowHarness() {
       <div data-testid="persisted-pass-route">{pass?.routeName ?? 'missing'}</div>
       <div data-testid="persisted-pass-boarding">{pass?.boardingPoint ?? 'missing'}</div>
       <div data-testid="persisted-pass-bus">{pass?.busId ?? 'missing'}</div>
+    </>
+  )
+}
+
+function PersistenceReliabilityHarness() {
+  const {
+    applications,
+    createApplication,
+    issuePass,
+    issuedPasses,
+    resubmitApplication,
+    updateApplicationStatus,
+  } = useStudentApplications()
+  const [result, setResult] = useState('idle')
+  const application = applications.find((item) => item.studentId === 'RELIABILITY-STUDENT-001')
+
+  const recordResult = (actionResult: WorkflowActionResult<{ reference: string }>) => {
+    setResult(actionResult.ok ? `ok:${actionResult.value.reference}` : `failed:${actionResult.reason}`)
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          recordResult(createApplication({
+            routeName: 'West Residence Shuttle',
+            boardingPoint: 'Residence Gate 1',
+            studentId: 'RELIABILITY-STUDENT-001',
+            studentName: 'Persistence Reliability Demo',
+          }))
+        }
+      >
+        Create reliability application
+      </button>
+      <button
+        type="button"
+        onClick={() => application && recordResult(
+          updateApplicationStatus(application.reference, 'under_review', 'Review started.'),
+        )}
+      >
+        Start reliability review
+      </button>
+      <button
+        type="button"
+        onClick={() => application && recordResult(
+          updateApplicationStatus(application.reference, 'corrections_requested', 'Please confirm the stop.'),
+        )}
+      >
+        Request reliability corrections
+      </button>
+      <button
+        type="button"
+        onClick={() => application && recordResult(
+          resubmitApplication(application.reference, {
+            routeName: 'West Residence Shuttle',
+            boardingPoint: 'Residence Gate 1',
+          }),
+        )}
+      >
+        Resubmit reliability application
+      </button>
+      <button
+        type="button"
+        onClick={() => application && recordResult(
+          updateApplicationStatus(application.reference, 'approved', 'Approved for persistence test.'),
+        )}
+      >
+        Approve reliability application
+      </button>
+      <button
+        type="button"
+        onClick={() => application && recordResult(issuePass(application.reference, 'bus-021'))}
+      >
+        Issue reliability pass
+      </button>
+      <div data-testid="reliability-result">{result}</div>
+      <div data-testid="reliability-status">{application?.reviewStatus ?? 'missing'}</div>
+      <div data-testid="reliability-history">{application?.statusHistory.length ?? 0}</div>
+      <div data-testid="reliability-pass-count">{issuedPasses.length}</div>
     </>
   )
 }
@@ -302,8 +412,8 @@ describe('staff transport portal', () => {
     render(<App />)
 
     expect(screen.getByText('Assigned students').parentElement).toHaveTextContent('4')
-    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('2')
-    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
     expect(screen.getByText('Under review').parentElement).toHaveTextContent('1')
     expect(screen.getByText(/fictional and not operational/i)).toBeInTheDocument()
   })
@@ -314,7 +424,7 @@ describe('staff transport portal', () => {
     kabirApplication.studentId = 'DEMO-STU-003'
     kabirApplication.studentName = 'Kabir Rao'
     kabirApplication.reviewStatus = 'approved'
-    kabirApplication.statusHistory.push({
+    kabirApplication.statusHistory.unshift({
       label: 'Application approved',
       description: 'Approved for the roster consistency test.',
       date: '20 Oct 2026',
@@ -329,8 +439,8 @@ describe('staff transport portal', () => {
 
     window.history.replaceState(null, '', '/staff')
     render(<App />)
-    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('2')
-    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
+    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('3')
     expect(screen.getByText('Under review').parentElement).toHaveTextContent('0')
   })
 
@@ -369,6 +479,207 @@ describe('staff transport portal', () => {
     expect(screen.getByTestId('persisted-pass-student')).toHaveTextContent('Persisted Workflow Demo')
   })
 
+  it('completes the student lifecycle through the student and staff UI and restores it after remount', async () => {
+    const user = userEvent.setup()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    let view = render(<SharedStudentStaffWorkflowHarness />)
+
+    await user.type(screen.getByLabelText(/preferred route/i), 'North Campus Loop')
+    await user.type(screen.getByLabelText(/boarding point/i), 'Gate 2, Near Main Cycle Stand')
+    await user.click(screen.getByRole('button', { name: /submit demo application/i }))
+
+    expect(screen.getByText('Status: Submitted')).toBeInTheDocument()
+    const applicationReference = screen.getByText('Application reference').nextElementSibling?.textContent
+    expect(applicationReference).toMatch(/^APP-/)
+    const queueItem = screen.getByRole('heading', { name: mockStudent.name }).closest('li')
+    expect(queueItem).not.toBeNull()
+    expect(within(queueItem!).getByText(applicationReference!)).toBeInTheDocument()
+    expect(within(queueItem!).getByText('Submitted')).toBeInTheDocument()
+
+    await user.click(within(queueItem!).getByRole('link', { name: /view application/i }))
+    await user.click(screen.getByRole('button', { name: /start review/i }))
+    await user.type(
+      screen.getByLabelText(/review note/i),
+      'Please add a note confirming the requested boarding point.',
+    )
+    await user.click(screen.getByRole('button', { name: /request corrections/i }))
+
+    expect(screen.getByText('Status: Corrections Requested')).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/please add a note confirming the requested boarding point/i).length,
+    ).toBeGreaterThan(0)
+    view.unmount()
+    view = render(<SharedStudentStaffWorkflowHarness />)
+
+    expect(screen.getByText('Status: Corrections Requested')).toBeInTheDocument()
+    expect(
+      screen.getAllByText(/please add a note confirming the requested boarding point/i).length,
+    ).toBeGreaterThan(0)
+    await user.click(screen.getByRole('button', { name: /edit and resubmit/i }))
+    await user.type(
+      screen.getByLabelText(/notes for the demo review team/i),
+      'Updated details for the demonstration request.',
+    )
+    await user.click(screen.getByRole('button', { name: /resubmit demo application/i }))
+
+    expect(screen.getByText('Status: Submitted')).toBeInTheDocument()
+    expect(screen.getAllByText(/application resubmitted/i).length).toBeGreaterThan(0)
+    view.unmount()
+    view = render(<SharedStudentStaffWorkflowHarness />)
+
+    expect(screen.getByText('Status: Submitted')).toBeInTheDocument()
+    expect(screen.getAllByText(/application resubmitted/i).length).toBeGreaterThan(0)
+    const resubmittedQueueItem = screen
+      .getByRole('heading', { name: mockStudent.name })
+      .closest('li')
+    await user.click(within(resubmittedQueueItem!).getByRole('link', { name: /view application/i }))
+    await user.click(screen.getByRole('button', { name: /start review/i }))
+    await user.click(screen.getByRole('button', { name: /approve demo application/i }))
+
+    expect(screen.getByText('Status: Approved')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /issue demo pass/i })).toBeInTheDocument()
+    const passArticle = screen.getByRole('article', { name: /prototype digital bus pass/i })
+    expect(within(passArticle).getByText(/no issued pass exists yet/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /issue demo pass/i }))
+
+    expect(within(passArticle).getByText('Active')).toBeInTheDocument()
+    const issuedPassReference = within(passArticle).getByText(/^EBUS-PASS-/).textContent
+    expect(issuedPassReference).toMatch(/^EBUS-PASS-/)
+
+    view.unmount()
+    render(<SharedStudentStaffWorkflowHarness />)
+
+    expect(screen.getByText('Status: Approved')).toBeInTheDocument()
+    expect(screen.getAllByText(applicationReference!).length).toBeGreaterThan(0)
+    const restoredPass = screen.getByRole('article', { name: /prototype digital bus pass/i })
+    expect(within(restoredPass).getByText(issuedPassReference!)).toBeInTheDocument()
+    expect(within(restoredPass).getByText(mockStudent.name)).toBeInTheDocument()
+    const restoredQueue = screen.getByRole('list', { name: 'Demo application review queue' })
+    const restoredQueueItem = within(restoredQueue)
+      .getByRole('heading', { name: mockStudent.name })
+      .closest('li')
+    expect(within(restoredQueueItem!).getByText('Approved')).toBeInTheDocument()
+    expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key/i)
+  }, 20000)
+
+  it('keeps every workflow operation persistence-first and allows retry after failed writes', async () => {
+    const user = userEvent.setup()
+    expect(saveDemoState({
+      applications: structuredClone(demoQueueApplications),
+      issuedPasses: structuredClone(defaultIssuedPasses),
+    }).ok).toBe(true)
+    let persistedValue = window.localStorage.getItem('mangalam-ebus-demo-state')
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const failNextWrite = () => {
+      setItemSpy.mockImplementationOnce(() => {
+        throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+      })
+    }
+
+    let view = render(
+      <StudentApplicationProvider>
+        <PersistenceReliabilityHarness />
+      </StudentApplicationProvider>,
+    )
+
+    const expectFailedOperation = async (
+      buttonName: RegExp,
+      expectedStatus: string,
+      expectedHistory: string,
+      expectedPassCount: string,
+    ) => {
+      failNextWrite()
+      await user.click(screen.getByRole('button', { name: buttonName }))
+      expect(screen.getByTestId('reliability-result')).toHaveTextContent('failed:persistence')
+      expect(screen.getByTestId('reliability-status')).toHaveTextContent(expectedStatus)
+      expect(screen.getByTestId('reliability-history')).toHaveTextContent(expectedHistory)
+      expect(screen.getByTestId('reliability-pass-count')).toHaveTextContent(expectedPassCount)
+      expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(persistedValue)
+    }
+
+    const expectSuccessfulRetry = async (buttonName: RegExp, expectedStatus: string) => {
+      await user.click(screen.getByRole('button', { name: buttonName }))
+      expect(screen.getByTestId('reliability-result')).toHaveTextContent(/^ok:/)
+      expect(screen.getByTestId('reliability-status')).toHaveTextContent(expectedStatus)
+      persistedValue = window.localStorage.getItem('mangalam-ebus-demo-state')
+      expect(persistedValue).not.toBeNull()
+    }
+
+    await expectFailedOperation(/create reliability application/i, 'missing', '0', '1')
+    await expectSuccessfulRetry(/create reliability application/i, 'submitted')
+
+    await expectFailedOperation(/start reliability review/i, 'submitted', '1', '1')
+    await expectSuccessfulRetry(/start reliability review/i, 'under_review')
+
+    await expectFailedOperation(/request reliability corrections/i, 'under_review', '2', '1')
+    await expectSuccessfulRetry(/request reliability corrections/i, 'corrections_requested')
+
+    await expectFailedOperation(/resubmit reliability application/i, 'corrections_requested', '3', '1')
+    await expectSuccessfulRetry(/resubmit reliability application/i, 'submitted')
+
+    await user.click(screen.getByRole('button', { name: /start reliability review/i }))
+    expect(screen.getByTestId('reliability-status')).toHaveTextContent('under_review')
+    persistedValue = window.localStorage.getItem('mangalam-ebus-demo-state')
+
+    await expectFailedOperation(/approve reliability application/i, 'under_review', '5', '1')
+    await expectSuccessfulRetry(/approve reliability application/i, 'approved')
+
+    await expectFailedOperation(/issue reliability pass/i, 'approved', '6', '1')
+    await expectSuccessfulRetry(/issue reliability pass/i, 'approved')
+    expect(screen.getByTestId('reliability-pass-count')).toHaveTextContent('2')
+
+    view.unmount()
+    view = render(
+      <StudentApplicationProvider>
+        <PersistenceReliabilityHarness />
+      </StudentApplicationProvider>,
+    )
+    expect(screen.getByTestId('reliability-status')).toHaveTextContent('approved')
+    expect(screen.getByTestId('reliability-history')).toHaveTextContent('6')
+    expect(screen.getByTestId('reliability-pass-count')).toHaveTextContent('2')
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(persistedValue)
+    view.unmount()
+  })
+
+  it('does not report pass issuance success until the pass is saved', async () => {
+    const user = userEvent.setup()
+    const applications = structuredClone(demoQueueApplications)
+    const application = applications.find((item) => item.reference === 'APP-2026-1003')!
+    application.studentId = mockStudent.studentId
+    application.studentName = mockStudent.name
+    expect(saveDemoState({
+      applications,
+      issuedPasses: structuredClone(defaultIssuedPasses),
+    }).ok).toBe(true)
+    const persistedValue = window.localStorage.getItem('mangalam-ebus-demo-state')
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError')
+    })
+
+    window.history.replaceState(null, '', `/staff/applications/${application.reference}`)
+    const firstRender = render(<StaffDetailRouteHarness reference={application.reference} />)
+    expect(screen.getByRole('button', { name: /issue demo pass/i })).toBeEnabled()
+    expect(screen.queryByRole('heading', { name: 'Issued pass' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /issue demo pass/i }))
+
+    expect(setItemSpy).toHaveBeenCalledOnce()
+    expect(setItemSpy.mock.results[0]?.type).toBe('throw')
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(persistedValue)
+    expect(screen.getByRole('status')).toHaveTextContent(/demo pass was not issued because it could not be saved/i)
+    expect(screen.getByRole('status')).not.toHaveTextContent(/demo pass ebus-pass-.* issued/i)
+    expect(screen.queryByRole('heading', { name: 'Issued pass' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /issue demo pass/i }))
+    expect(screen.getByRole('heading', { name: 'Issued pass' })).toBeInTheDocument()
+    firstRender.unmount()
+
+    const restoredRender = render(<StaffDetailRouteHarness reference={application.reference} />)
+    expect(screen.getByRole('heading', { name: 'Issued pass' })).toBeInTheDocument()
+    expect(screen.getByText(mockStudent.name)).toBeInTheDocument()
+    restoredRender.unmount()
+  }, 20000)
+
   it('cancels reset without changing the saved workflow', async () => {
     const user = userEvent.setup()
     const applications = structuredClone(demoQueueApplications)
@@ -376,7 +687,7 @@ describe('staff transport portal', () => {
     kabirApplication.studentId = 'DEMO-STU-003'
     kabirApplication.studentName = 'Kabir Rao'
     kabirApplication.reviewStatus = 'approved'
-    kabirApplication.statusHistory.push({
+    kabirApplication.statusHistory.unshift({
       label: 'Application approved',
       description: 'Approved before canceling reset.',
       date: '20 Oct 2026',
@@ -390,7 +701,7 @@ describe('staff transport portal', () => {
     await user.click(screen.getByRole('button', { name: /reset demo data/i }))
 
     expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(rawState)
-    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
+    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('3')
     expect(screen.getByText('Under review').parentElement).toHaveTextContent('0')
     expect(window.confirm).toHaveBeenCalledOnce()
   })
@@ -413,16 +724,24 @@ describe('staff transport portal', () => {
     window.history.replaceState(null, '', '/staff')
     render(<App />)
     expect(screen.getByText('Assigned students').parentElement).toHaveTextContent('4')
-    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('2')
+    expect(screen.getByText('Active passes').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
     expect(window.confirm).toHaveBeenCalledOnce()
   })
 
   it('reports a failed storage clear during confirmed reset', async () => {
     const user = userEvent.setup()
-    const storedState = JSON.stringify({ version: 1, applications: [], issuedPasses: [] })
+    const applications = structuredClone(demoQueueApplications)
+    applications[0].studentId = mockStudent.studentId
+    applications[0].studentName = mockStudent.name
+    const storedState = JSON.stringify({
+      version: 1,
+      applications,
+      issuedPasses: structuredClone(defaultIssuedPasses),
+    })
     window.localStorage.setItem('mangalam-ebus-demo-state', storedState)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
-    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementationOnce(() => {
       throw new Error('clear failed')
     })
     window.history.replaceState(null, '', '/staff')
@@ -432,6 +751,12 @@ describe('staff transport portal', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent(/could not clear the stored demo data/i)
     expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(storedState)
+    expect(screen.getByText('Under review').parentElement).toHaveTextContent('2')
+
+    await user.click(screen.getByRole('button', { name: /reset demo data/i }))
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBeNull()
+    expect(screen.getByText('Under review').parentElement).toHaveTextContent('1')
+    expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
   })
 
   it('searches the assigned-bus roster by student ID and name', async () => {
@@ -461,7 +786,7 @@ describe('staff transport portal', () => {
     await user.selectOptions(statusFilter, 'active')
 
     const roster = screen.getByRole('list', { name: 'E-BUS-012 student roster' })
-    expect(within(roster).getByRole('heading', { name: 'Aarav Nair' })).toBeInTheDocument()
+    expect(within(roster).queryByRole('heading', { name: 'Aarav Nair' })).not.toBeInTheDocument()
     expect(within(roster).getByRole('heading', { name: 'Meera Iyer' })).toBeInTheDocument()
     expect(within(roster).queryByRole('heading', { name: 'Diya Menon' })).not.toBeInTheDocument()
 
@@ -491,7 +816,6 @@ describe('staff transport portal', () => {
     expect(screen.queryByRole('heading', { name: 'Aarav Nair' })).not.toBeInTheDocument()
 
     await user.clear(search)
-    expect(screen.getByRole('heading', { name: 'Aarav Nair' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Meera Iyer' })).toBeInTheDocument()
   })
 
@@ -607,7 +931,7 @@ describe('staff transport portal', () => {
     await user.click(screen.getByRole('button', { name: /approve application/i }))
     expect(screen.getByTestId('status')).toHaveTextContent('approved')
     expect(screen.getByTestId('history-count')).toHaveTextContent('6')
-    expect(screen.getByTestId('issued-count')).toHaveTextContent('2')
+    expect(screen.getByTestId('issued-count')).toHaveTextContent('1')
 
     await user.click(screen.getByRole('button', { name: /^request corrections$/i }))
     expect(screen.getByTestId('result')).toHaveTextContent('blocked:approved')
@@ -654,7 +978,9 @@ describe('staff transport portal', () => {
   it('lets a student edit and resubmit after a correction request', async () => {
     const user = userEvent.setup()
     const applications = structuredClone(demoQueueApplications)
-    const application = applications.find((item) => item.reference === 'APP-2026-1005')!
+    const application = applications.find((item) => item.reference === 'APP-2026-1001')!
+    application.studentId = mockStudent.studentId
+    application.studentName = mockStudent.name
     application.reviewStatus = 'corrections_requested'
     application.nextAction = 'Please confirm the boarding point before resubmission.'
     application.statusHistory.unshift({
@@ -692,14 +1018,14 @@ describe('staff transport portal', () => {
           <button
             type="button"
             onClick={() => {
-              const created = createApplication({
+              const result = createApplication({
                 routeName: 'North Campus Loop',
                 boardingPoint: 'Gate 2, Near Main Cycle Stand',
                 studentId: 'REFERENCE-TEST-001',
                 studentName: 'Reference Test Student',
               })
-              if (created) {
-                setReferences((current) => [...current, created.reference])
+              if (result.ok) {
+                setReferences((current) => [...current, result.value.reference])
               }
             }}
           >

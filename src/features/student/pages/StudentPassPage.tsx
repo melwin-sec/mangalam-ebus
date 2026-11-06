@@ -7,13 +7,31 @@ import {
   MapPinned,
   TicketCheck,
 } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../context/useStudentApplications'
 import { mockStudent } from '../data/mockStudentData'
+import { parseDemoDate } from '../lib/demoStorage'
 
 function StudentPassPage() {
   const { studentPass } = useStudentApplications()
-  const statusLabel = studentPass ? 'Active' : 'Not issued'
+  const [today] = useState(() => {
+    const currentDate = new Date()
+    return Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate())
+  })
+  const validFrom = studentPass ? parseDemoDate(studentPass.validFrom) : null
+  const validTo = studentPass ? parseDemoDate(studentPass.validTo) : null
+  const statusLabel = !studentPass
+    ? 'Not issued'
+    : validFrom && today < validFrom.getTime()
+      ? 'Not yet valid'
+      : validTo && today > validTo.getTime()
+        ? 'Expired'
+        : 'Active'
+  const statusClasses =
+    statusLabel === 'Active'
+      ? 'border-success/30 bg-success/10 text-success'
+      : 'border-warning/50 bg-warning/10 text-warning'
 
   return (
     <section aria-labelledby="pass-title" className="mx-auto w-full max-w-3xl space-y-5">
@@ -50,11 +68,7 @@ function StudentPassPage() {
             <p className="text-xs text-muted">Digital Bus Pass &amp; Transport</p>
           </div>
           <div
-            className={`ml-auto flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${
-              studentPass
-                ? 'border-success/30 bg-success/10 text-success'
-                : 'border-warning/50 bg-warning/10 text-warning'
-            }`}
+            className={`ml-auto flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${statusClasses}`}
           >
             <BadgeCheck className="h-4 w-4" aria-hidden="true" />
             <span>{statusLabel}</span>

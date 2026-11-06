@@ -71,10 +71,14 @@ function StaffApplicationDetailPage() {
     }
 
     const nextNote = note.trim() || `Updated in the demo workflow to ${formatApplicationStatus(status)}.`
-    const updatedApplication = updateApplicationStatus(application.reference, status, nextNote)
+    const result = updateApplicationStatus(application.reference, status, nextNote)
 
-    if (!updatedApplication) {
-      setDecisionError('This status change is not allowed for the current application state.')
+    if (!result.ok) {
+      setDecisionError(
+        result.reason === 'persistence'
+          ? 'The review decision was not saved. Existing saved data was preserved; please resolve the storage warning and retry.'
+          : 'This status change is not allowed for the current application state.',
+      )
       return
     }
 
@@ -93,16 +97,18 @@ function StaffApplicationDetailPage() {
           )
         : undefined
 
-    const issued = issuePass(application.reference, matchingBus?.id ?? '')
+    const result = issuePass(application.reference, matchingBus?.id ?? '')
 
-    if (!issued) {
+    if (!result.ok) {
       setIssueMessage(
-        'This application cannot be issued yet. It must be approved, use a supported bus, match the route, and use a valid boarding point for that route.',
+        result.reason === 'persistence'
+          ? 'The demo pass was not issued because it could not be saved. Existing saved data was preserved; please resolve the storage warning and retry.'
+          : 'This application cannot be issued yet. It must be approved, use a supported bus, match the route, and use a valid boarding point for that route.',
       )
       return
     }
 
-    setIssueMessage(`Demo pass ${issued.reference} issued for ${issued.studentName}.`)
+    setIssueMessage(`Demo pass ${result.value.reference} issued for ${result.value.studentName}.`)
   }
 
   return (
@@ -232,8 +238,8 @@ function StaffApplicationDetailPage() {
           Timeline
         </h2>
         <ol className="mt-4 space-y-3">
-          {application.statusHistory.map((entry) => (
-            <li key={`${entry.label}-${entry.date}`} className="rounded-xl border border-border bg-background-soft p-4">
+          {application.statusHistory.map((entry, index) => (
+            <li key={`${entry.label}-${entry.date}-${index}`} className="rounded-xl border border-border bg-background-soft p-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="font-medium text-foreground">{entry.label}</h3>
                 <time className="text-sm text-muted">{entry.date}</time>

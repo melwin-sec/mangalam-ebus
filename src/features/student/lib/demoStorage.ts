@@ -1,5 +1,4 @@
 import { mockStaffBuses } from '../../staff/data/mockStaffData'
-import { mockStudent } from '../data/mockStudentData'
 import type { IssuedBusPass, StudentApplication } from '../types'
 
 export const STORAGE_KEY = 'mangalam-ebus-demo-state'
@@ -68,40 +67,9 @@ export const demoQueueApplications: StudentApplication[] = [
     studentId: 'DEMO-STU-004',
     studentName: 'Meera Iyer',
   },
-  {
-    reference: 'APP-2026-1005',
-    submittedOn: '15 Apr 2026',
-    nextAction: 'Approved in the prototype workflow. This is not an official institutional approval or travel authorization.',
-    statusHistory: [
-      { label: 'Application submitted', description: 'Requested the North Campus Loop route.', date: '13 Apr 2026' },
-      { label: 'Application under review', description: 'Staff checked the route and boarding details.', date: '14 Apr 2026' },
-      { label: 'Application approved', description: 'The demo workflow approved the route request before issuing a prototype pass.', date: '15 Apr 2026' },
-    ],
-    reviewStatus: 'approved',
-    routeName: 'North Campus Loop',
-    boardingPoint: 'Gate 2, Near Main Cycle Stand',
-    notes: 'Approved fictional application associated with the sample digital pass.',
-    studentId: mockStudent.studentId,
-    studentName: mockStudent.name,
-  },
 ]
 
 export const defaultIssuedPasses: IssuedBusPass[] = [
-  {
-    reference: 'EBUS-PASS-2041',
-    applicationReference: 'APP-2026-1005',
-    studentId: mockStudent.studentId,
-    studentName: mockStudent.name,
-    routeName: 'North Campus Loop',
-    boardingPoint: 'Gate 2, Near Main Cycle Stand',
-    busId: 'bus-012',
-    busIdentifier: 'E-BUS-012',
-    issuedOn: '01 Aug 2026',
-    validFrom: '01 Aug 2026',
-    validTo: '31 Jul 2027',
-    note: 'Prototype data — illustrative only. This record is for demo purposes and is not connected to a live transport system.',
-    status: 'issued',
-  },
   {
     reference: 'EBUS-PASS-004',
     applicationReference: 'APP-2026-1004',
@@ -135,6 +103,46 @@ function normalize(value: string) {
   return value.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
 }
 
+const monthNumbers: Record<string, number> = {
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  May: 4,
+  Jun: 5,
+  Jul: 6,
+  Aug: 7,
+  Sep: 8,
+  Oct: 9,
+  Nov: 10,
+  Dec: 11,
+}
+
+export function parseDemoDate(value: string): Date | null {
+  const match = /^(\d{2}) ([A-Z][a-z]{2}) (\d{4})$/.exec(value)
+  if (!match) {
+    return null
+  }
+
+  const day = Number(match[1])
+  const month = monthNumbers[match[2]]
+  const year = Number(match[3])
+  if (month === undefined) {
+    return null
+  }
+
+  const parsed = new Date(Date.UTC(year, month, day))
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null
+  }
+
+  return parsed
+}
+
 function isValidPassForApplication(pass: IssuedBusPass, application: StudentApplication) {
   const bus = mockStaffBuses.find((candidate) => candidate.id === pass.busId)
   if (!bus || application.reviewStatus !== 'approved') {
@@ -160,16 +168,58 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function getStorageErrorMessage(error: unknown, operation: 'read' | 'write' | 'clear') {
+  const errorName = isRecord(error) && typeof error.name === 'string' ? error.name : ''
+  const errorCode = isRecord(error) && typeof error.code === 'number' ? error.code : 0
+  const isQuotaError =
+    errorName === 'QuotaExceededError' ||
+    errorName === 'NS_ERROR_DOM_QUOTA_REACHED' ||
+    errorCode === 22 ||
+    errorCode === 1014
+
+  if (isQuotaError) {
+    return 'Browser storage is full. The change was not saved, and existing saved data was preserved.'
+  }
+
+  const isAccessError =
+    errorName === 'SecurityError' ||
+    errorName === 'NotAllowedError' ||
+    errorName === 'InvalidStateError'
+
+  if (isAccessError) {
+    return `Browser storage is unavailable or access was denied. Prototype data could not be ${operation === 'read' ? 'read' : operation === 'write' ? 'saved' : 'cleared'}.`
+  }
+
+  if (operation === 'read') {
+    return 'Stored prototype data could not be read, so the default fictional state was restored.'
+  }
+  if (operation === 'clear') {
+    return 'The prototype could not clear the stored demo data from the browser.'
+  }
+  return 'The prototype could not save this state in the browser, so persistence is unavailable.'
+}
+
 function isValidStatusHistoryEntry(value: unknown): value is StudentApplication['statusHistory'][number] {
   if (!isRecord(value)) {
     return false
   }
 
-  const label = typeof value.label === 'string'
-  const date = typeof value.date === 'string'
-  const description = typeof value.description === 'string'
+  const allowedLabels = new Set([
+    'Application submitted',
+    'Application resubmitted',
+    'Application under review',
+    'Corrections requested',
+    'Application approved',
+  ])
 
-  return label && date && description
+  return (
+    typeof value.label === 'string' &&
+    allowedLabels.has(value.label) &&
+    typeof value.date === 'string' &&
+    parseDemoDate(value.date) !== null &&
+    typeof value.description === 'string' &&
+    Boolean(value.description.trim())
+  )
 }
 
 function isValidApplicationRecord(value: unknown): value is StudentApplication {
@@ -177,21 +227,47 @@ function isValidApplicationRecord(value: unknown): value is StudentApplication {
     return false
   }
 
-  const allowedStatuses = new Set(['submitted', 'under_review', 'corrections_requested', 'approved'])
+  const statusHistoryLabels: Record<string, ApplicationReviewStatus> = {
+    'Application submitted': 'submitted',
+    'Application resubmitted': 'submitted',
+    'Application under review': 'under_review',
+    'Corrections requested': 'corrections_requested',
+    'Application approved': 'approved',
+  }
+  const latestHistoryEntry =
+    Array.isArray(value.statusHistory) && value.statusHistory.length > 0
+      ? value.statusHistory.reduce((latest, entry) => {
+          const entryDate = isRecord(entry) && typeof entry.date === 'string'
+            ? parseDemoDate(entry.date)
+            : null
+          const latestDate = isRecord(latest) && typeof latest.date === 'string'
+            ? parseDemoDate(latest.date)
+            : null
+          return entryDate && latestDate && entryDate > latestDate ? entry : latest
+        })
+      : undefined
 
   return (
     typeof value.reference === 'string' &&
+    Boolean(value.reference.trim()) &&
     typeof value.submittedOn === 'string' &&
+    parseDemoDate(value.submittedOn) !== null &&
     typeof value.nextAction === 'string' &&
+    Boolean(value.nextAction.trim()) &&
     Array.isArray(value.statusHistory) &&
+    value.statusHistory.length > 0 &&
     value.statusHistory.every(isValidStatusHistoryEntry) &&
     typeof value.reviewStatus === 'string' &&
-    allowedStatuses.has(value.reviewStatus) &&
-    (typeof value.routeName === 'string' || value.routeName === undefined) &&
-    (typeof value.boardingPoint === 'string' || value.boardingPoint === undefined) &&
+    isRecord(latestHistoryEntry) &&
+    typeof latestHistoryEntry.label === 'string' &&
+    statusHistoryLabels[latestHistoryEntry.label] === value.reviewStatus &&
+    (typeof value.routeName === 'string' && Boolean(value.routeName.trim())) &&
+    (typeof value.boardingPoint === 'string' && Boolean(value.boardingPoint.trim())) &&
     (typeof value.notes === 'string' || value.notes === undefined) &&
-    (typeof value.studentId === 'string' || value.studentId === undefined) &&
-    (typeof value.studentName === 'string' || value.studentName === undefined)
+    typeof value.studentId === 'string' &&
+    Boolean(value.studentId.trim()) &&
+    typeof value.studentName === 'string' &&
+    Boolean(value.studentName.trim())
   )
 }
 
@@ -200,22 +276,40 @@ function isValidIssuedPassRecord(value: unknown): value is IssuedBusPass {
     return false
   }
 
+  const validFrom = typeof value.validFrom === 'string' ? parseDemoDate(value.validFrom) : null
+  const validTo = typeof value.validTo === 'string' ? parseDemoDate(value.validTo) : null
+
   return (
     typeof value.reference === 'string' &&
+    Boolean(value.reference.trim()) &&
     typeof value.applicationReference === 'string' &&
+    Boolean(value.applicationReference.trim()) &&
     typeof value.studentId === 'string' &&
+    Boolean(value.studentId.trim()) &&
     typeof value.studentName === 'string' &&
+    Boolean(value.studentName.trim()) &&
     typeof value.routeName === 'string' &&
+    Boolean(value.routeName.trim()) &&
     typeof value.boardingPoint === 'string' &&
+    Boolean(value.boardingPoint.trim()) &&
     typeof value.busId === 'string' &&
+    Boolean(value.busId.trim()) &&
     typeof value.busIdentifier === 'string' &&
+    Boolean(value.busIdentifier.trim()) &&
     typeof value.issuedOn === 'string' &&
+    parseDemoDate(value.issuedOn) !== null &&
     typeof value.validFrom === 'string' &&
+    validFrom !== null &&
     typeof value.validTo === 'string' &&
+    validTo !== null &&
+    validTo.getTime() >= validFrom.getTime() &&
     typeof value.note === 'string' &&
+    Boolean(value.note.trim()) &&
     value.status === 'issued'
   )
 }
+
+type ApplicationReviewStatus = StudentApplication['reviewStatus']
 
 function hasValidPassRelationships(applications: StudentApplication[], issuedPasses: IssuedBusPass[]) {
   const applicationMap = new Map(applications.map((application) => [application.reference, application]))
@@ -227,12 +321,10 @@ function hasValidPassRelationships(applications: StudentApplication[], issuedPas
       return false
     }
     seenApplicationReferences.add(application.reference)
-    if (application.studentId) {
-      if (seenStudentIds.has(application.studentId)) {
-        return false
-      }
-      seenStudentIds.add(application.studentId)
+    if (seenStudentIds.has(application.studentId)) {
+      return false
     }
+    seenStudentIds.add(application.studentId)
   }
 
   const seenPassReferences = new Set<string>()
@@ -319,12 +411,11 @@ export function readDemoState(): DemoLoadResult {
       persistenceStatus: 'ready',
       persistenceMessage: null,
     }
-  } catch {
+  } catch (error) {
     return {
       ...fallback,
       persistenceStatus: 'read_failed',
-      persistenceMessage:
-        'Stored prototype data could not be read, so the default fictional state was restored.',
+      persistenceMessage: getStorageErrorMessage(error, 'read'),
     }
   }
 }
@@ -357,11 +448,11 @@ export function saveDemoState(state: DemoWorkflowState): {
       persistenceStatus: 'ready',
       persistenceMessage: null,
     }
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       persistenceStatus: 'write_failed',
-      persistenceMessage: 'The prototype could not save this state in the browser, so persistence is unavailable.',
+      persistenceMessage: getStorageErrorMessage(error, 'write'),
     }
   }
 }
@@ -379,11 +470,11 @@ export function clearDemoState(): {
       persistenceStatus: 'ready',
       persistenceMessage: null,
     }
-  } catch {
+  } catch (error) {
     return {
       ok: false,
       persistenceStatus: 'write_failed',
-      persistenceMessage: 'The prototype could not clear the stored demo data from the browser.',
+      persistenceMessage: getStorageErrorMessage(error, 'clear'),
     }
   }
 }

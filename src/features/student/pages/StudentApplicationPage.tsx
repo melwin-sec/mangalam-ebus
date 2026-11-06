@@ -57,9 +57,13 @@ function StudentApplicationPage() {
     }
 
     if (studentApplication && studentApplication.reviewStatus === 'corrections_requested') {
-      const updated = resubmitApplication(studentApplication.reference, normalizedDraft)
-      if (!updated) {
-        setFormError('The application could not be resubmitted. Check the route and boarding point.')
+      const result = resubmitApplication(studentApplication.reference, normalizedDraft)
+      if (!result.ok) {
+        setFormError(
+          result.reason === 'persistence'
+            ? 'The application was not resubmitted because it could not be saved. Your existing saved data was preserved; please resolve the storage warning and retry.'
+            : 'The application could not be resubmitted. Check the route and boarding point.',
+        )
         return
       }
 
@@ -70,9 +74,13 @@ function StudentApplicationPage() {
       return
     }
 
-    const created = createApplication(normalizedDraft)
-    if (!created) {
-      setFormError('An application already exists for this student. Reload the page to view the current record.')
+    const result = createApplication(normalizedDraft)
+    if (!result.ok) {
+      setFormError(
+        result.reason === 'persistence'
+          ? 'The application was not submitted because it could not be saved. Your existing saved data was preserved; please resolve the storage warning and retry.'
+          : 'An application already exists for this student. Reload the page to view the current record.',
+      )
       return
     }
 
@@ -288,9 +296,9 @@ function StudentApplicationPage() {
             Status timeline
           </h2>
           <ol className="mt-4 space-y-3">
-            {studentApplication.statusHistory.map((entry) => (
+            {studentApplication.statusHistory.map((entry, index) => (
               <li
-                key={`${entry.label}-${entry.date}`}
+                key={`${entry.label}-${entry.date}-${index}`}
                 className="rounded-xl border border-border bg-background-soft p-4"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">

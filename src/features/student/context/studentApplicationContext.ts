@@ -9,6 +9,10 @@ export type StudentApplicationDraft = {
   studentName?: string
 }
 
+export type WorkflowActionResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; reason: 'invalid' | 'persistence' }
+
 export type StudentApplicationContextValue = {
   applications: StudentApplication[]
   studentApplication: StudentApplication | null
@@ -16,14 +20,17 @@ export type StudentApplicationContextValue = {
   studentPass: IssuedBusPass | null
   persistenceStatus: 'ready' | 'read_failed' | 'write_failed'
   persistenceMessage: string | null
-  createApplication: (draft: StudentApplicationDraft) => StudentApplication | null
+  createApplication: (draft: StudentApplicationDraft) => WorkflowActionResult<StudentApplication>
   updateApplicationStatus: (
     reference: string,
     nextStatus: ApplicationReviewStatus,
     note: string,
-  ) => StudentApplication | null
-  resubmitApplication: (reference: string, draft: StudentApplicationDraft) => StudentApplication | null
-  issuePass: (reference: string, busId: string) => IssuedBusPass | null
+  ) => WorkflowActionResult<StudentApplication>
+  resubmitApplication: (
+    reference: string,
+    draft: StudentApplicationDraft,
+  ) => WorkflowActionResult<StudentApplication>
+  issuePass: (reference: string, busId: string) => WorkflowActionResult<IssuedBusPass>
   resetPrototypeState: () => void
 }
 

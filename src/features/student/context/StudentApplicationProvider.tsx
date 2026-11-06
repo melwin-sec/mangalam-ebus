@@ -10,7 +10,11 @@ import {
   type PersistenceStatus,
 } from '../lib/demoStorage'
 import type { ApplicationReviewStatus, IssuedBusPass, StudentApplication } from '../types'
-import { StudentApplicationContext, type StudentApplicationDraft } from './studentApplicationContext'
+import {
+  StudentApplicationContext,
+  type StudentApplicationDraft,
+  type WorkflowActionResult,
+} from './studentApplicationContext'
 
 const statusTransitionMap: Record<ApplicationReviewStatus, ApplicationReviewStatus[]> = {
   submitted: ['under_review'],
@@ -44,7 +48,6 @@ function buildReference(usedReferences: Set<string>, sequence: { current: number
     reference = `${candidatePrefix}${String(sequence.current).padStart(4, '0')}`
   } while (usedReferences.has(reference))
 
-  usedReferences.add(reference)
   return reference
 }
 
@@ -99,36 +102,35 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
 
   const applicationsRef = useRef(applications)
   const issuedPassesRef = useRef(issuedPasses)
+  const preserveStoredDataRef = useRef(initialState.persistenceStatus === 'read_failed')
   const usedReferencesRef = useRef(new Set(initialState.applications.map((application) => application.reference)))
   const referenceSequenceRef = useRef(0)
   const usedPassReferencesRef = useRef(new Set(initialState.issuedPasses.map((pass) => pass.reference)))
 
   const commitState = useCallback(
     (nextApplications: StudentApplication[], nextIssuedPasses: IssuedBusPass[]) => {
+      if (preserveStoredDataRef.current) {
+        return false
+      }
+      const saveResult = saveDemoState({ applications: nextApplications, issuedPasses: nextIssuedPasses })
+      setPersistenceStatus(saveResult.persistenceStatus)
+      setPersistenceMessage(saveResult.persistenceMessage)
+      if (!saveResult.ok) {
+        return false
+      }
+
       applicationsRef.current = nextApplications
       issuedPassesRef.current = nextIssuedPasses
       setApplications(nextApplications)
       setIssuedPasses(nextIssuedPasses)
-
-      const saveResult = saveDemoState({ applications: nextApplications, issuedPasses: nextIssuedPasses })
-      setPersistenceStatus(saveResult.persistenceStatus)
-      setPersistenceMessage(saveResult.persistenceMessage)
+      setPersistenceStatus('ready')
+      setPersistenceMessage(null)
+      return true
     },
     [],
   )
 
   const resetPrototypeState = useCallback(() => {
-    const nextApplications = demoQueueApplications
-    const nextIssuedPasses = defaultIssuedPasses
-
-    applicationsRef.current = nextApplications
-    issuedPassesRef.current = nextIssuedPasses
-    setApplications(nextApplications)
-    setIssuedPasses(nextIssuedPasses)
-    usedReferencesRef.current = new Set(nextApplications.map((application) => application.reference))
-    referenceSequenceRef.current = 0
-    usedPassReferencesRef.current = new Set(nextIssuedPasses.map((pass) => pass.reference))
-
     const saveResult = clearDemoState()
     if (!saveResult.ok) {
       setPersistenceStatus(saveResult.persistenceStatus)
@@ -136,6 +138,16 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
       return
     }
 
+    const nextApplications = demoQueueApplications
+    const nextIssuedPasses = defaultIssuedPasses
+    applicationsRef.current = nextApplications
+    issuedPassesRef.current = nextIssuedPasses
+    setApplications(nextApplications)
+    setIssuedPasses(nextIssuedPasses)
+    usedReferencesRef.current = new Set(nextApplications.map((application) => application.reference))
+    referenceSequenceRef.current = 0
+    usedPassReferencesRef.current = new Set(nextIssuedPasses.map((pass) => pass.reference))
+    preserveStoredDataRef.current = false
     setPersistenceStatus('ready')
     setPersistenceMessage('Prototype data was reset to the initial fictional state.')
   }, [])
@@ -150,12 +162,16 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
     [issuedPasses],
   )
 
-  const createApplication = useCallback((draft: StudentApplicationDraft): StudentApplication | null => {
-    const targetStudentId = draft.studentId ?? mockStudent.studentId
-    const targetStudentName = draft.studentName ?? mockStudent.name
+  const createApplication = useCallback((draft: StudentApplicationDraft): WorkflowActionResult<StudentApplication> => {
+    const targetStudentId = (draft.studentId ?? mockStudent.studentId).trim()
+    const targetStudentName = (draft.studentName ?? mockStudent.name).trim()
 
-    if (applicationsRef.current.some((item) => item.studentId === targetStudentId)) {
-      return null
+    if (
+      !targetStudentId ||
+      !targetStudentName ||
+      applicationsRef.current.some((item) => item.studentId === targetStudentId)
+    ) {
+      return { ok: false, reason: 'invalid' }
     }
 
     const sanitizedRouteName = draft.routeName.trim()
@@ -163,7 +179,7 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
     const sanitizedNotes = draft.notes?.trim() ?? ''
 
     if (!sanitizedRouteName || !sanitizedBoardingPoint) {
-      return null
+      return { ok: false, reason: 'invalid' }
     }
 
     const createdOn = formatDate(new Date())
@@ -189,13 +205,15 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
     }
 
     const nextApplications = [createdApplication, ...applicationsRef.current]
+    if (!commitState(nextApplications, issuedPassesRef.current)) {
+      return { ok: false, reason: 'persistence' }
+    }
     usedReferencesRef.current.add(reference)
-    commitState(nextApplications, issuedPassesRef.current)
-    return createdApplication
+    return { ok: true, value: createdApplication }
   }, [commitState])
 
   const updateApplicationStatus = useCallback(
-    (reference: string, nextStatus: ApplicationReviewStatus, note: string): StudentApplication | null => {
+    (reference: string, nextStatus: ApplicationReviewStatus, note: string): WorkflowActionResult<StudentApplication> => {
       const currentApplications = applicationsRef.current
       const application = currentApplications.find((item) => item.reference === reference)
       const trimmedNote = note.trim()
@@ -206,7 +224,7 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         !isValidTransition(application.reviewStatus, nextStatus) ||
         (nextStatus === 'corrections_requested' && !trimmedNote)
       ) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       const safeNote = trimmedNote || getNextAction(nextStatus)
@@ -229,14 +247,16 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
       const nextApplications = currentApplications.map((item) =>
         item.reference === reference ? updatedApplication : item,
       )
-      commitState(nextApplications, issuedPassesRef.current)
-      return updatedApplication
+      if (!commitState(nextApplications, issuedPassesRef.current)) {
+        return { ok: false, reason: 'persistence' }
+      }
+      return { ok: true, value: updatedApplication }
     },
     [commitState],
   )
 
   const resubmitApplication = useCallback(
-    (reference: string, draft: StudentApplicationDraft): StudentApplication | null => {
+    (reference: string, draft: StudentApplicationDraft): WorkflowActionResult<StudentApplication> => {
       const currentApplications = applicationsRef.current
       const application = currentApplications.find((item) => item.reference === reference)
       const sanitizedRouteName = draft.routeName.trim()
@@ -248,7 +268,7 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         !sanitizedRouteName ||
         !sanitizedBoardingPoint
       ) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       const updatedApplication = {
@@ -272,14 +292,16 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
       const nextApplications = currentApplications.map((item) =>
         item.reference === reference ? updatedApplication : item,
       )
-      commitState(nextApplications, issuedPassesRef.current)
-      return updatedApplication
+      if (!commitState(nextApplications, issuedPassesRef.current)) {
+        return { ok: false, reason: 'persistence' }
+      }
+      return { ok: true, value: updatedApplication }
     },
     [commitState],
   )
 
   const issuePass = useCallback(
-    (reference: string, busId: string): IssuedBusPass | null => {
+    (reference: string, busId: string): WorkflowActionResult<IssuedBusPass> => {
       const application = applicationsRef.current.find((item) => item.reference === reference)
 
       if (
@@ -288,7 +310,7 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         !application.studentId ||
         !application.studentName
       ) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       const hasExistingPass = issuedPassesRef.current.some(
@@ -296,17 +318,17 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
       )
 
       if (hasExistingPass) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       if (!isValidIssuedRouteAndBoardingPoint(application.routeName, application.boardingPoint, busId)) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       const matchingBus = mockStaffBuses.find((bus) => bus.id === busId)
 
       if (!matchingBus) {
-        return null
+        return { ok: false, reason: 'invalid' }
       }
 
       let passReference = ''
@@ -315,8 +337,6 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         passReference = `EBUS-PASS-${new Date().getFullYear()}-${String(sequence).padStart(4, '0')}`
         sequence += 1
       } while (usedPassReferencesRef.current.has(passReference))
-      usedPassReferencesRef.current.add(passReference)
-
       const issuedPass: IssuedBusPass = {
         reference: passReference,
         applicationReference: application.reference,
@@ -334,8 +354,11 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
       }
 
       const nextIssuedPasses = [issuedPass, ...issuedPassesRef.current]
-      commitState(applicationsRef.current, nextIssuedPasses)
-      return issuedPass
+      if (!commitState(applicationsRef.current, nextIssuedPasses)) {
+        return { ok: false, reason: 'persistence' }
+      }
+      usedPassReferencesRef.current.add(passReference)
+      return { ok: true, value: issuedPass }
     },
     [commitState],
   )

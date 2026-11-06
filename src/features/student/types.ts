@@ -68,9 +68,9 @@ export type StudentApplication = {
   nextAction: string
   statusHistory: StatusHistoryEntry[]
   reviewStatus: ApplicationReviewStatus
-  routeName?: string
-  boardingPoint?: string
+  routeName: string
+  boardingPoint: string
   notes?: string
-  studentId?: string
-  studentName?: string
+  studentId: string
+  studentName: string
 }
