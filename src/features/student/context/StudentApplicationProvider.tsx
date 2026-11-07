@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { mockStaffBuses } from '../../staff/data/mockStaffData'
 import { mockStudent } from '../data/mockStudentData'
 import {
@@ -7,6 +7,8 @@ import {
   demoQueueApplications,
   readDemoState,
   saveDemoState,
+  isSupportedRouteAndBoardingPoint,
+  STORAGE_KEY,
   type PersistenceStatus,
 } from '../lib/demoStorage'
 import type { ApplicationReviewStatus, IssuedBusPass, StudentApplication } from '../types'
@@ -102,23 +104,51 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
 
   const applicationsRef = useRef(applications)
   const issuedPassesRef = useRef(issuedPasses)
+  const storageSnapshotRef = useRef(initialState.storageSnapshot)
   const preserveStoredDataRef = useRef(initialState.persistenceStatus === 'read_failed')
   const usedReferencesRef = useRef(new Set(initialState.applications.map((application) => application.reference)))
   const referenceSequenceRef = useRef(0)
   const usedPassReferencesRef = useRef(new Set(initialState.issuedPasses.map((pass) => pass.reference)))
+
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (
+        (event.key !== STORAGE_KEY && event.key !== null) ||
+        event.newValue === storageSnapshotRef.current
+      ) {
+        return
+      }
+
+      preserveStoredDataRef.current = true
+      setPersistenceStatus('write_failed')
+      setPersistenceMessage(
+        'Saved prototype data changed in another tab. Reload this page before making more changes.',
+      )
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    return () => window.removeEventListener('storage', handleStorageChange)
+  }, [])
 
   const commitState = useCallback(
     (nextApplications: StudentApplication[], nextIssuedPasses: IssuedBusPass[]) => {
       if (preserveStoredDataRef.current) {
         return false
       }
-      const saveResult = saveDemoState({ applications: nextApplications, issuedPasses: nextIssuedPasses })
+      const saveResult = saveDemoState(
+        { applications: nextApplications, issuedPasses: nextIssuedPasses },
+        storageSnapshotRef.current,
+      )
       setPersistenceStatus(saveResult.persistenceStatus)
       setPersistenceMessage(saveResult.persistenceMessage)
       if (!saveResult.ok) {
+        if (saveResult.conflict) {
+          preserveStoredDataRef.current = true
+        }
         return false
       }
 
+      storageSnapshotRef.current = saveResult.storageSnapshot ?? null
       applicationsRef.current = nextApplications
       issuedPassesRef.current = nextIssuedPasses
       setApplications(nextApplications)
@@ -131,13 +161,17 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
   )
 
   const resetPrototypeState = useCallback(() => {
-    const saveResult = clearDemoState()
+    const saveResult = clearDemoState(storageSnapshotRef.current)
     if (!saveResult.ok) {
       setPersistenceStatus(saveResult.persistenceStatus)
       setPersistenceMessage(saveResult.persistenceMessage)
+      if (saveResult.conflict) {
+        preserveStoredDataRef.current = true
+      }
       return
     }
 
+    storageSnapshotRef.current = null
     const nextApplications = demoQueueApplications
     const nextIssuedPasses = defaultIssuedPasses
     applicationsRef.current = nextApplications
@@ -178,7 +212,11 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
     const sanitizedBoardingPoint = draft.boardingPoint.trim()
     const sanitizedNotes = draft.notes?.trim() ?? ''
 
-    if (!sanitizedRouteName || !sanitizedBoardingPoint) {
+    if (
+      !sanitizedRouteName ||
+      !sanitizedBoardingPoint ||
+      !isSupportedRouteAndBoardingPoint(sanitizedRouteName, sanitizedBoardingPoint)
+    ) {
       return { ok: false, reason: 'invalid' }
     }
 
@@ -222,7 +260,9 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         !application ||
         nextStatus === 'submitted' ||
         !isValidTransition(application.reviewStatus, nextStatus) ||
-        (nextStatus === 'corrections_requested' && !trimmedNote)
+        (nextStatus === 'corrections_requested' && !trimmedNote) ||
+        (nextStatus === 'approved' &&
+          !isSupportedRouteAndBoardingPoint(application.routeName, application.boardingPoint))
       ) {
         return { ok: false, reason: 'invalid' }
       }
@@ -266,7 +306,8 @@ export function StudentApplicationProvider({ children }: { children: ReactNode }
         !application ||
         !isValidTransition(application.reviewStatus, 'submitted') ||
         !sanitizedRouteName ||
-        !sanitizedBoardingPoint
+        !sanitizedBoardingPoint ||
+        !isSupportedRouteAndBoardingPoint(sanitizedRouteName, sanitizedBoardingPoint)
       ) {
         return { ok: false, reason: 'invalid' }
       }

@@ -1,12 +1,17 @@
 import { ArrowRight, BusFront, RefreshCcw, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../../student/context/useStudentApplications'
+import { getPassDateStatus } from '../../student/lib/demoStorage'
+import type { StudentStatus } from '../../student/types'
 import { demoStaff, mockStaffBuses, mockStaffStudents } from '../data/mockStaffData'
 
 const statusLabels = {
   active: 'Active passes',
   pending: 'Pending passes',
   review: 'Under review',
+  expired: 'Expired passes',
+  not_yet_valid: 'Not yet valid passes',
+  invalid: 'Invalid passes',
 } as const
 
 function StaffDashboardPage() {
@@ -18,27 +23,40 @@ function StaffDashboardPage() {
     throw new Error(`Assigned demonstration bus "${demoStaff.assignedBusId}" is missing.`)
   }
 
-  const assignedStudents = mockStaffStudents
-    .filter((student) => student.busId === assignedBus.id)
+  const knownStudentIds = new Set(mockStaffStudents.map((student) => student.studentId))
+  const issuedStudents = issuedPasses
+    .filter((pass) => !knownStudentIds.has(pass.studentId))
+    .map((pass) => ({
+      studentId: pass.studentId,
+      name: pass.studentName,
+      busId: pass.busId,
+      passStatus: getPassDateStatus(pass),
+    }))
+  const assignedStudents = [...mockStaffStudents, ...issuedStudents]
     .map((student) => {
       const issuedPass = issuedPasses.find((pass) => pass.studentId === student.studentId)
       const studentApplication = applications.find((application) => application.studentId === student.studentId)
 
-      let passStatus: 'pending' | 'active' | 'review' = student.passStatus
+      let passStatus: StudentStatus = student.passStatus
       if (issuedPass) {
-        passStatus = 'active'
+        passStatus = getPassDateStatus(issuedPass)
       } else if (studentApplication) {
         passStatus = ['submitted', 'under_review', 'corrections_requested'].includes(studentApplication.reviewStatus)
           ? 'review'
           : 'pending'
       }
 
-      return { ...student, passStatus }
+      return { ...student, passStatus, busId: issuedPass?.busId ?? student.busId }
     })
+    .filter((student) => student.busId === assignedBus.id)
 
-  const activePassCount = assignedStudents.filter((student) => student.passStatus === 'active').length
-  const pendingPassCount = assignedStudents.filter((student) => student.passStatus === 'pending').length
-  const reviewPassCount = assignedStudents.filter((student) => student.passStatus === 'review').length
+  const statusCounts = assignedStudents.reduce(
+    (counts, student) => {
+      counts[student.passStatus] += 1
+      return counts
+    },
+    { active: 0, pending: 0, review: 0, expired: 0, not_yet_valid: 0, invalid: 0 },
+  )
 
   const handleReset = () => {
     const confirmed = window.confirm(
@@ -70,6 +88,12 @@ function StaffDashboardPage() {
       {persistenceStatus !== 'ready' ? (
         <div role="status" className="rounded-xl border border-warning/40 bg-warning/10 p-4 text-sm text-warning">
           {persistenceMessage ?? 'Browser storage is unavailable, so changes are not guaranteed to persist.'}
+        </div>
+      ) : null}
+      {persistenceStatus === 'ready' &&
+      persistenceMessage === 'Prototype data was reset to the initial fictional state.' ? (
+        <div role="status" className="rounded-xl border border-success/30 bg-success/10 p-4 text-sm text-success">
+          Prototype data was reset successfully.
         </div>
       ) : null}
 
@@ -110,7 +134,7 @@ function StaffDashboardPage() {
             <div key={status} className="rounded-xl border border-border bg-surface p-4">
               <dt className="text-sm text-muted">{statusLabels[status]}</dt>
               <dd className="mt-2 text-2xl font-semibold text-foreground">
-                {status === 'active' ? activePassCount : status === 'pending' ? pendingPassCount : reviewPassCount}
+                {statusCounts[status]}
               </dd>
             </div>
           ))}

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { mockStaffBuses } from '../data/mockStaffData'
 import { useStudentApplications } from '../../student/context/useStudentApplications'
 import type { ApplicationReviewStatus } from '../../student/types'
+import { isSupportedRouteAndBoardingPoint } from '../../student/lib/demoStorage'
 
 function formatApplicationStatus(status: ApplicationReviewStatus | undefined) {
   if (!status) {
@@ -77,6 +78,9 @@ function StaffApplicationDetailPage() {
       setDecisionError(
         result.reason === 'persistence'
           ? 'The review decision was not saved. Existing saved data was preserved; please resolve the storage warning and retry.'
+          : status === 'approved' &&
+              !isSupportedRouteAndBoardingPoint(application.routeName, application.boardingPoint)
+            ? 'This application has an unsupported route and boarding point. Request corrections before approval.'
           : 'This status change is not allowed for the current application state.',
       )
       return

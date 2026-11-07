@@ -1,4 +1,4 @@
-export type StudentStatus = 'active' | 'pending' | 'review'
+export type StudentStatus = 'active' | 'pending' | 'review' | 'expired' | 'not_yet_valid' | 'invalid'
 export type ApplicationReviewStatus =
   | 'submitted'
   | 'under_review'

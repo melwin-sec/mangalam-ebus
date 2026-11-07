@@ -10,6 +10,8 @@ import {
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../context/useStudentApplications'
 import { mockRoute, mockStudent } from '../data/mockStudentData'
+import { getPassDateStatus } from '../lib/demoStorage'
+import { mockStaffBuses } from '../../staff/data/mockStaffData'
 
 const quickLinks = [
   { icon: BadgeCheck, label: 'View digital pass', to: '/student/pass' },
@@ -30,7 +32,8 @@ const sampleNotices = [
 ]
 
 function formatStatus(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
+  const formatted = status.replace(/_/g, ' ')
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
 }
 
 function formatApplicationStatus(status: string) {
@@ -44,7 +47,22 @@ function StudentDashboardPage() {
   const { studentApplication, studentPass } = useStudentApplications()
   const currentApplication = studentApplication
   const reviewStatus = currentApplication?.reviewStatus ?? 'not_started'
-  const passStatus = studentPass ? 'active' : 'pending'
+  const passDateStatus = getPassDateStatus(studentPass)
+  const passStatus = passDateStatus
+  const assignedBus = studentPass
+    ? mockStaffBuses.find((bus) => bus.id === studentPass.busId)
+    : undefined
+  const requestedRoute = currentApplication?.routeName
+    ? mockStaffBuses.find(
+        (bus) => bus.routeName.toLocaleLowerCase() === currentApplication.routeName.trim().toLocaleLowerCase(),
+      )
+    : undefined
+  const transportBus = studentPass?.busIdentifier ?? (currentApplication ? 'Not assigned yet' : mockRoute.bus)
+  const transportRoute = studentPass?.routeName ?? currentApplication?.routeName ?? mockRoute.name
+  const transportBoardingPoint =
+    studentPass?.boardingPoint ?? currentApplication?.boardingPoint ?? mockRoute.boardingPoint
+  const transportOrigin = assignedBus?.origin ?? requestedRoute?.origin ?? mockRoute.origin
+  const transportDestination = assignedBus?.destination ?? requestedRoute?.destination ?? mockRoute.destination
   const passReference = studentPass?.reference ?? 'Not issued yet'
   const passValidFrom = studentPass?.validFrom ?? 'Not issued'
   const passValidTo = studentPass?.validTo ?? 'Not issued'
@@ -77,7 +95,7 @@ function StudentDashboardPage() {
             </div>
             <span
               className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium ${
-                studentPass
+                passDateStatus === 'active'
                   ? 'border-success/30 bg-success/10 text-success'
                   : 'border-warning/50 bg-warning/10 text-warning'
               }`}
@@ -97,7 +115,9 @@ function StudentDashboardPage() {
           </dl>
           <p className="mt-4 rounded-lg border border-border bg-background-soft px-3 py-2 text-xs leading-5 text-muted">
             {studentPass
-              ? 'Prototype pass only. This is not an official or valid travel pass.'
+              ? passDateStatus === 'active'
+                ? 'Prototype pass only. This is not an official or valid travel pass.'
+                : `Prototype pass status: ${formatStatus(passStatus)}. This pass is not valid for travel.`
               : 'No issued pass exists yet. Approval is separate from pass issuance.'}
           </p>
           <Link
@@ -115,13 +135,13 @@ function StudentDashboardPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-foreground">Assigned transport</h2>
-              <p className="text-sm text-muted">{mockRoute.bus}</p>
+              <p className="text-sm text-muted">{transportBus}</p>
             </div>
           </div>
           <dl className="mt-5 space-y-3">
             <div>
               <dt className="text-xs text-muted">Route</dt>
-              <dd className="mt-1 text-sm font-medium text-foreground">{mockRoute.name}</dd>
+              <dd className="mt-1 text-sm font-medium text-foreground">{transportRoute}</dd>
             </div>
             <div>
               <dt className="flex items-center gap-1.5 text-xs text-muted">
@@ -129,18 +149,20 @@ function StudentDashboardPage() {
                 Boarding point
               </dt>
               <dd className="mt-1 break-words text-sm font-medium text-foreground">
-                {mockRoute.boardingPoint}
+                {transportBoardingPoint}
               </dd>
             </div>
             <div>
               <dt className="text-xs text-muted">Route</dt>
               <dd className="mt-1 break-words text-sm text-foreground">
-                {mockRoute.origin} to {mockRoute.destination}
+                {transportOrigin} to {transportDestination}
               </dd>
             </div>
           </dl>
           <p className="mt-4 text-xs leading-5 text-muted">
-            Illustrative route details; schedules are not live.
+            {currentApplication || studentPass
+              ? 'Transport details reflect this application or issued demo pass; schedules are not live.'
+              : 'Illustrative route details; schedules are not live.'}
           </p>
           <Link
             to="/student/transport"

@@ -7,27 +7,19 @@ import {
   MapPinned,
   TicketCheck,
 } from 'lucide-react'
-import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../context/useStudentApplications'
 import { mockStudent } from '../data/mockStudentData'
-import { parseDemoDate } from '../lib/demoStorage'
+import { getPassDateStatus } from '../lib/demoStorage'
+
+function formatPassStatus(status: string) {
+  const formatted = status.replace(/_/g, ' ')
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
+}
 
 function StudentPassPage() {
   const { studentPass } = useStudentApplications()
-  const [today] = useState(() => {
-    const currentDate = new Date()
-    return Date.UTC(currentDate.getFullYear(), currentDate.getMonth(), currentDate.getDate())
-  })
-  const validFrom = studentPass ? parseDemoDate(studentPass.validFrom) : null
-  const validTo = studentPass ? parseDemoDate(studentPass.validTo) : null
-  const statusLabel = !studentPass
-    ? 'Not issued'
-    : validFrom && today < validFrom.getTime()
-      ? 'Not yet valid'
-      : validTo && today > validTo.getTime()
-        ? 'Expired'
-        : 'Active'
+  const statusLabel = formatPassStatus(getPassDateStatus(studentPass))
   const statusClasses =
     statusLabel === 'Active'
       ? 'border-success/30 bg-success/10 text-success'

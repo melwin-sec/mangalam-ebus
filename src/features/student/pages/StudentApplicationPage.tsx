@@ -2,6 +2,7 @@ import { ArrowLeft, CalendarClock, ClipboardList, FileText, Send } from 'lucide-
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../context/useStudentApplications'
+import { isSupportedRouteAndBoardingPoint } from '../lib/demoStorage'
 
 const emptyDraft = {
   routeName: '',
@@ -49,6 +50,15 @@ function StudentApplicationPage() {
 
     if (!normalizedDraft.boardingPoint) {
       nextErrors.boardingPoint = 'Please enter your boarding point.'
+    }
+
+    if (
+      normalizedDraft.routeName &&
+      normalizedDraft.boardingPoint &&
+      !isSupportedRouteAndBoardingPoint(normalizedDraft.routeName, normalizedDraft.boardingPoint)
+    ) {
+      nextErrors.routeName = 'Choose a supported route and boarding point combination.'
+      nextErrors.boardingPoint = 'Choose a boarding point supported by the selected route.'
     }
 
     if (Object.keys(nextErrors).length > 0) {

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -45,6 +45,20 @@ afterEach(() => {
 })
 
 describe('student portal foundation', () => {
+  it('rejects unsupported route and boarding combinations before creating an application', async () => {
+    const user = userEvent.setup()
+    window.history.replaceState(null, '', '/student/application')
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/preferred route/i), 'North Campus Loop')
+    await user.type(screen.getByLabelText(/boarding point/i), 'Library Plaza Stop')
+    await user.click(screen.getByRole('button', { name: /submit demo application/i }))
+
+    expect(screen.getByText(/supported route and boarding point combination/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /submit a demonstration application/i })).toBeInTheDocument()
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBeNull()
+  })
+
   it('renders a demo-entry link from the student login page', () => {
     window.history.replaceState(null, '', '/student/login')
 
@@ -137,7 +151,7 @@ describe('student portal foundation', () => {
     expect(screen.getByText(mockStudent.studentId)).toBeInTheDocument()
 
     const passCard = screen.getByRole('heading', { name: 'Digital bus pass' }).closest('article')
-    expect(within(passCard!).getByText('Pending')).toBeInTheDocument()
+    expect(within(passCard!).getByText('Not issued', { selector: 'span' })).toBeInTheDocument()
     expect(within(passCard!).getByText(/no issued pass exists yet/i)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /submit a demo application/i })).toHaveAttribute(
       'href',
@@ -196,6 +210,82 @@ describe('student portal foundation', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent(/was not submitted because it could not be saved/i)
     expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(rawSavedData)
+  })
+
+  it('rejects stale-tab writes and preserves the externally saved snapshot', async () => {
+    const user = userEvent.setup()
+
+    for (const dispatchEvent of [false, true]) {
+      window.history.replaceState(null, '', '/student/application')
+      const view = render(<App />)
+      const externalApplications = structuredClone(demoQueueApplications)
+      externalApplications[0].reference = 'APP-2026-EXTERNAL'
+      externalApplications[0].studentId = 'EXTERNAL-STUDENT-001'
+      externalApplications[0].studentName = 'External Tab Student'
+      const externalSnapshot = JSON.stringify({
+        version: 1,
+        applications: externalApplications,
+        issuedPasses: structuredClone(defaultIssuedPasses),
+        savedAt: new Date().toISOString(),
+      })
+      window.localStorage.setItem('mangalam-ebus-demo-state', externalSnapshot)
+
+      if (dispatchEvent) {
+        await act(async () => {
+          window.dispatchEvent(
+            new StorageEvent('storage', {
+              key: 'mangalam-ebus-demo-state',
+              oldValue: null,
+              newValue: externalSnapshot,
+            }),
+          )
+        })
+      }
+
+      await user.type(screen.getByLabelText(/preferred route/i), 'North Campus Loop')
+      await user.type(screen.getByLabelText(/boarding point/i), 'Gate 2, Near Main Cycle Stand')
+      await user.click(screen.getByRole('button', { name: /submit demo application/i }))
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/was not submitted because it could not be saved/i)
+      expect(screen.getByText(/changed in another tab.*reload/i)).toBeInTheDocument()
+      expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(externalSnapshot)
+      view.unmount()
+      window.localStorage.clear()
+    }
+  })
+
+  it('detects an external update during a write and keeps the newer snapshot', async () => {
+    const user = userEvent.setup()
+    const externalApplications = structuredClone(demoQueueApplications)
+    externalApplications[0].reference = 'APP-2026-WRITE-RACE'
+    externalApplications[0].studentId = 'WRITE-RACE-STUDENT-001'
+    externalApplications[0].studentName = 'Write Race Student'
+    const externalSnapshot = JSON.stringify({
+      version: 1,
+      applications: externalApplications,
+      issuedPasses: structuredClone(defaultIssuedPasses),
+      savedAt: new Date().toISOString(),
+    })
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(function (
+      this: Storage,
+      key,
+      value,
+    ) {
+      originalSetItem.call(this, key, value)
+      originalSetItem.call(this, key, externalSnapshot)
+    })
+    window.history.replaceState(null, '', '/student/application')
+    render(<App />)
+
+    await user.type(screen.getByLabelText(/preferred route/i), 'North Campus Loop')
+    await user.type(screen.getByLabelText(/boarding point/i), 'Gate 2, Near Main Cycle Stand')
+    await user.click(screen.getByRole('button', { name: /submit demo application/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/was not submitted because it could not be saved/i)
+    expect(screen.getByText(/changed while saving.*reload/i)).toBeInTheDocument()
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(externalSnapshot)
+    expect(screen.queryByText('Status: Submitted')).not.toBeInTheDocument()
   })
 
   it('shows a student-visible warning when storage reads fail', () => {
@@ -262,7 +352,7 @@ describe('student portal foundation', () => {
     render(<App />)
 
     const pass = screen.getByRole('article', { name: /prototype digital bus pass/i })
-    expect(within(pass).getByText('Not issued')).toBeInTheDocument()
+    expect(within(pass).getByText('Not issued', { selector: 'span' })).toBeInTheDocument()
     expect(within(pass).getByText('Not yet issued')).toBeInTheDocument()
     expect(within(pass).getByText(/no issued pass exists yet for this student/i)).toBeInTheDocument()
     expect(within(pass).queryByText(mockStudent.name)).not.toBeInTheDocument()
@@ -299,6 +389,12 @@ describe('student portal foundation', () => {
         const pass = screen.getByRole('article', { name: /prototype digital bus pass/i })
         expect(within(pass).getByText(scenario.label)).toBeInTheDocument()
         view.unmount()
+
+        window.history.replaceState(null, '', '/student')
+        const dashboardView = render(<App />)
+        const dashboardPass = screen.getByRole('heading', { name: 'Digital bus pass' }).closest('article')
+        expect(within(dashboardPass!).getByText(scenario.label)).toBeInTheDocument()
+        dashboardView.unmount()
       }
     } finally {
       vi.useRealTimers()

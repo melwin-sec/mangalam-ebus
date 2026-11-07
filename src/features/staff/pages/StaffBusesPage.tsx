@@ -1,10 +1,21 @@
 import { BusFront, Users } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useStudentApplications } from '../../student/context/useStudentApplications'
+import { getPassDateStatus } from '../../student/lib/demoStorage'
+import type { StudentStatus } from '../../student/types'
 import { mockStaffBuses, mockStaffStudents } from '../data/mockStaffData'
 
 function StaffBusesPage() {
   const { applications, issuedPasses } = useStudentApplications()
+  const knownStudentIds = new Set(mockStaffStudents.map((student) => student.studentId))
+  const issuedStudents = issuedPasses
+    .filter((pass) => !knownStudentIds.has(pass.studentId))
+    .map((pass) => ({
+      studentId: pass.studentId,
+      name: pass.studentName,
+      busId: pass.busId,
+      passStatus: getPassDateStatus(pass),
+    }))
 
   return (
     <section aria-labelledby="staff-buses-title" className="space-y-6">
@@ -23,17 +34,16 @@ function StaffBusesPage() {
 
       <ul aria-label="Demonstration buses" className="space-y-4">
         {mockStaffBuses.map((bus) => {
-          const busStudents = mockStaffStudents
-            .filter((student) => student.busId === bus.id)
+          const busStudents = [...mockStaffStudents, ...issuedStudents]
             .map((student) => {
               const issuedPass = issuedPasses.find((pass) => pass.studentId === student.studentId)
               const studentApplication = applications.find(
                 (application) => application.studentId === student.studentId,
               )
 
-              let passStatus: 'pending' | 'active' | 'review' = 'pending'
+              let passStatus: StudentStatus = student.passStatus
               if (issuedPass) {
-                passStatus = 'active'
+                passStatus = getPassDateStatus(issuedPass)
               } else if (
                 studentApplication &&
                 ['submitted', 'under_review', 'corrections_requested'].includes(studentApplication.reviewStatus)
@@ -41,15 +51,16 @@ function StaffBusesPage() {
                 passStatus = 'review'
               }
 
-              return { ...student, passStatus }
+              return { ...student, passStatus, busId: issuedPass?.busId ?? student.busId }
             })
+            .filter((student) => student.busId === bus.id)
 
           const statusCounts = busStudents.reduce(
             (counts, student) => {
               counts[student.passStatus] += 1
               return counts
             },
-            { active: 0, pending: 0, review: 0 },
+            { active: 0, pending: 0, review: 0, expired: 0, not_yet_valid: 0, invalid: 0 },
           )
 
           return (
@@ -80,7 +91,7 @@ function StaffBusesPage() {
                 </Link>
               </div>
 
-              <dl className="mt-5 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-4">
+              <dl className="mt-5 grid gap-3 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-7">
                 <div>
                   <dt className="flex items-center gap-2 text-xs text-muted">
                     <Users className="h-4 w-4 text-primary" aria-hidden="true" />
@@ -106,6 +117,24 @@ function StaffBusesPage() {
                   <dt className="text-xs text-muted">Under review</dt>
                   <dd className="mt-1 text-lg font-semibold text-foreground">
                     {statusCounts.review}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Not yet valid passes</dt>
+                  <dd className="mt-1 text-lg font-semibold text-foreground">
+                    {statusCounts.not_yet_valid}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Expired passes</dt>
+                  <dd className="mt-1 text-lg font-semibold text-foreground">
+                    {statusCounts.expired}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted">Invalid passes</dt>
+                  <dd className="mt-1 text-lg font-semibold text-foreground">
+                    {statusCounts.invalid}
                   </dd>
                 </div>
               </dl>

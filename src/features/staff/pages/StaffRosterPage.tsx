@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { StudentStatus } from '../../student/types'
+import { getPassDateStatus } from '../../student/lib/demoStorage'
 import { useStudentApplications } from '../../student/context/useStudentApplications'
 import { demoStaff, mockStaffBuses, mockStaffStudents } from '../data/mockStaffData'
 import type { StaffStudent } from '../types'
 
-const passStatuses = ['active', 'pending', 'review'] as const
+const passStatuses = ['active', 'pending', 'review', 'not_yet_valid', 'expired', 'invalid'] as const
 type PassStatusFilter = (typeof passStatuses)[number] | 'all'
 
 function formatStatus(status: StaffStudent['passStatus']) {
-  return status.charAt(0).toUpperCase() + status.slice(1)
+  const formatted = status.replace(/_/g, ' ')
+  return formatted.charAt(0).toUpperCase() + formatted.slice(1)
 }
 
 function StaffRosterPage() {
@@ -22,8 +24,16 @@ function StaffRosterPage() {
   const selectedBus = mockStaffBuses.find((bus) => bus.id === selectedBusId)
 
   const rosterStudents = useMemo<StaffStudent[]>(() => {
-    return mockStaffStudents
-      .filter((student) => student.busId === selectedBusId)
+    const knownStudentIds = new Set(mockStaffStudents.map((student) => student.studentId))
+    const issuedStudents: StaffStudent[] = issuedPasses
+      .filter((pass) => !knownStudentIds.has(pass.studentId))
+      .map((pass) => ({
+        studentId: pass.studentId,
+        name: pass.studentName,
+        busId: pass.busId,
+        passStatus: getPassDateStatus(pass),
+      }))
+    return [...mockStaffStudents, ...issuedStudents]
       .map((student) => {
         const issuedPass = issuedPasses.find((pass) => pass.studentId === student.studentId)
         const studentApplication = applications.find((application) => application.studentId === student.studentId)
@@ -31,15 +41,16 @@ function StaffRosterPage() {
         let passStatus: StudentStatus = student.passStatus
 
         if (issuedPass) {
-          passStatus = 'active'
+          passStatus = getPassDateStatus(issuedPass)
         } else if (studentApplication) {
           passStatus = ['submitted', 'under_review', 'corrections_requested'].includes(studentApplication.reviewStatus)
             ? 'review'
             : 'pending'
         }
 
-        return { ...student, passStatus }
+        return { ...student, passStatus, busId: issuedPass?.busId ?? student.busId }
       })
+      .filter((student) => student.busId === selectedBusId)
   }, [applications, issuedPasses, selectedBusId])
 
   if (!selectedBus) {

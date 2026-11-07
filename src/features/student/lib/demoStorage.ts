@@ -97,6 +97,7 @@ export type DemoWorkflowState = {
 export type DemoLoadResult = DemoWorkflowState & {
   persistenceStatus: PersistenceStatus
   persistenceMessage: string | null
+  storageSnapshot: string | null
 }
 
 function normalize(value: string) {
@@ -141,6 +142,54 @@ export function parseDemoDate(value: string): Date | null {
   }
 
   return parsed
+}
+
+export type PassDateStatus = 'not_issued' | 'not_yet_valid' | 'active' | 'expired' | 'invalid'
+
+export function getPassDateStatus(pass: null, now?: Date): 'not_issued'
+export function getPassDateStatus(
+  pass: IssuedBusPass,
+  now?: Date,
+): Exclude<PassDateStatus, 'not_issued'>
+export function getPassDateStatus(pass: IssuedBusPass | null, now?: Date): PassDateStatus
+export function getPassDateStatus(
+  pass: IssuedBusPass | null,
+  now = new Date(),
+): PassDateStatus {
+  if (!pass) {
+    return 'not_issued'
+  }
+
+  const validFrom = parseDemoDate(pass.validFrom)
+  const validTo = parseDemoDate(pass.validTo)
+  if (!validFrom || !validTo) {
+    return 'invalid'
+  }
+
+  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+  if (today < validFrom.getTime()) {
+    return 'not_yet_valid'
+  }
+  if (today > validTo.getTime()) {
+    return 'expired'
+  }
+  return 'active'
+}
+
+export function isSupportedRouteAndBoardingPoint(
+  routeName: string | undefined,
+  boardingPoint: string | undefined,
+): boolean {
+  if (!routeName || !boardingPoint) {
+    return false
+  }
+  const normalizedRoute = normalize(routeName)
+  const normalizedBoardingPoint = normalize(boardingPoint)
+  return mockStaffBuses.some(
+    (bus) =>
+      normalize(bus.routeName) === normalizedRoute &&
+      bus.boardingPoints.some((point) => normalize(point) === normalizedBoardingPoint),
+  )
 }
 
 function isValidPassForApplication(pass: IssuedBusPass, application: StudentApplication) {
@@ -385,13 +434,16 @@ export function readDemoState(): DemoLoadResult {
     issuedPasses: defaultIssuedPasses,
     persistenceStatus: 'ready',
     persistenceMessage: null,
+    storageSnapshot: null,
   }
+  let storageSnapshot: string | null = null
 
   try {
     const rawValue = window.localStorage.getItem(STORAGE_KEY)
+    storageSnapshot = rawValue
 
-    if (!rawValue) {
-      return fallback
+    if (rawValue === null || rawValue === '') {
+      return { ...fallback, storageSnapshot }
     }
 
     const parsed = JSON.parse(rawValue) as unknown
@@ -402,6 +454,7 @@ export function readDemoState(): DemoLoadResult {
         persistenceStatus: 'read_failed',
         persistenceMessage:
           'Saved prototype data was invalid or from an unsupported version and has been ignored.',
+        storageSnapshot,
       }
     }
 
@@ -410,20 +463,24 @@ export function readDemoState(): DemoLoadResult {
       issuedPasses: parsed.issuedPasses,
       persistenceStatus: 'ready',
       persistenceMessage: null,
+      storageSnapshot,
     }
   } catch (error) {
     return {
       ...fallback,
       persistenceStatus: 'read_failed',
       persistenceMessage: getStorageErrorMessage(error, 'read'),
+      storageSnapshot,
     }
   }
 }
 
-export function saveDemoState(state: DemoWorkflowState): {
+export function saveDemoState(state: DemoWorkflowState, expectedSnapshot?: string | null): {
   ok: boolean
   persistenceStatus: PersistenceStatus
   persistenceMessage: string | null
+  storageSnapshot?: string
+  conflict?: boolean
 } {
   try {
     const payload = {
@@ -441,12 +498,34 @@ export function saveDemoState(state: DemoWorkflowState): {
       }
     }
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+    if (
+      expectedSnapshot !== undefined &&
+      window.localStorage.getItem(STORAGE_KEY) !== expectedSnapshot
+    ) {
+      return {
+        ok: false,
+        persistenceStatus: 'write_failed',
+        persistenceMessage: 'Saved prototype data changed in another tab. Reload this page before retrying.',
+        conflict: true,
+      }
+    }
+
+    const storageSnapshot = JSON.stringify(payload)
+    window.localStorage.setItem(STORAGE_KEY, storageSnapshot)
+    if (window.localStorage.getItem(STORAGE_KEY) !== storageSnapshot) {
+      return {
+        ok: false,
+        persistenceStatus: 'write_failed',
+        persistenceMessage: 'Saved prototype data changed while saving. Reload this page before retrying.',
+        conflict: true,
+      }
+    }
 
     return {
       ok: true,
       persistenceStatus: 'ready',
       persistenceMessage: null,
+      storageSnapshot,
     }
   } catch (error) {
     return {
@@ -457,13 +536,34 @@ export function saveDemoState(state: DemoWorkflowState): {
   }
 }
 
-export function clearDemoState(): {
+export function clearDemoState(expectedSnapshot?: string | null): {
   ok: boolean
   persistenceStatus: PersistenceStatus
   persistenceMessage: string | null
+  conflict?: boolean
 } {
   try {
+    if (
+      expectedSnapshot !== undefined &&
+      window.localStorage.getItem(STORAGE_KEY) !== expectedSnapshot
+    ) {
+      return {
+        ok: false,
+        persistenceStatus: 'write_failed',
+        persistenceMessage: 'Saved prototype data changed in another tab. Reload this page before resetting.',
+        conflict: true,
+      }
+    }
+
     window.localStorage.removeItem(STORAGE_KEY)
+    if (window.localStorage.getItem(STORAGE_KEY) !== null) {
+      return {
+        ok: false,
+        persistenceStatus: 'write_failed',
+        persistenceMessage: 'Saved prototype data changed while resetting. Reload this page before retrying.',
+        conflict: true,
+      }
+    }
 
     return {
       ok: true,

@@ -7,7 +7,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import App from '../../App'
 import { StudentApplicationProvider } from '../student/context/StudentApplicationProvider'
 import { useStudentApplications } from '../student/context/useStudentApplications'
-import type { ApplicationReviewStatus } from '../student/types'
+import type { ApplicationReviewStatus, StudentStatus } from '../student/types'
 import StudentApplicationPage from '../student/pages/StudentApplicationPage'
 import StudentPassPage from '../student/pages/StudentPassPage'
 import { mockStudent } from '../student/data/mockStudentData'
@@ -67,20 +67,37 @@ function ApplicationTransitionHarness() {
 
   if (!application) {
     return (
-      <button
-        type="button"
-        onClick={() => {
-          createApplication({
-            routeName: 'North Campus Loop',
-            boardingPoint: 'Gate 2, Near Main Cycle Stand',
-            notes: 'Demo request',
-            studentId: 'TRANSITION-TEST-001',
-            studentName: 'Transition Test Student',
-          })
-        }}
-      >
-        Create application
-      </button>
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            createApplication({
+              routeName: 'North Campus Loop',
+              boardingPoint: 'Gate 2, Near Main Cycle Stand',
+              notes: 'Demo request',
+              studentId: 'TRANSITION-TEST-001',
+              studentName: 'Transition Test Student',
+            })
+          }}
+        >
+          Create application
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const result = createApplication({
+              routeName: 'South Gate Connector',
+              boardingPoint: 'Gate 2, Near Main Cycle Stand',
+              studentId: 'UNSUPPORTED-TRANSITION-001',
+              studentName: 'Unsupported Route Student',
+            })
+            setResult(result.ok ? 'allowed' : 'blocked:unsupported')
+          }}
+        >
+          Create unsupported application
+        </button>
+        <div data-testid="result">{result}</div>
+      </>
     )
   }
 
@@ -117,7 +134,7 @@ function ApplicationTransitionHarness() {
         type="button"
         onClick={() => {
           const updated = actionValue(resubmitApplication(application.reference, {
-            routeName: 'North Campus Loop',
+            routeName: 'South Gate Connector',
             boardingPoint: 'Library Plaza Stop',
           }))
           setResult(updated ? `updated:${updated.reviewStatus}` : `blocked:${application.reviewStatus}`)
@@ -444,6 +461,105 @@ describe('staff transport portal', () => {
     expect(screen.getByText('Under review').parentElement).toHaveTextContent('0')
   })
 
+  it('uses the issued pass bus and route across student and staff summaries', () => {
+    const applications = structuredClone(demoQueueApplications)
+    const application = applications.find((item) => item.reference === 'APP-2026-1003')!
+    application.studentId = mockStudent.studentId
+    application.studentName = mockStudent.name
+    application.routeName = 'West Residence Shuttle'
+    application.boardingPoint = 'Residence Gate 1'
+    const passes = structuredClone(defaultIssuedPasses)
+    const aaravPass = {
+      ...passes[0],
+      reference: 'EBUS-PASS-AARAV',
+      applicationReference: application.reference,
+      studentId: mockStudent.studentId,
+      studentName: mockStudent.name,
+      routeName: 'West Residence Shuttle',
+      boardingPoint: 'Residence Gate 1',
+      busId: 'bus-021',
+      busIdentifier: 'E-BUS-021',
+      validFrom: '01 Aug 2026',
+      validTo: '31 Jul 2027',
+    }
+    passes.push(aaravPass)
+    expect(saveDemoState({ applications, issuedPasses: passes }).ok).toBe(true)
+
+    window.history.replaceState(null, '', '/student')
+    const studentView = render(<App />)
+    const transportCard = screen.getByRole('heading', { name: 'Assigned transport' }).closest('article')
+    expect(within(transportCard!).getByText('E-BUS-021')).toBeInTheDocument()
+    expect(within(transportCard!).getByText('West Residence Shuttle')).toBeInTheDocument()
+    expect(within(transportCard!).getByText('Residence Gate 1')).toBeInTheDocument()
+    studentView.unmount()
+
+    window.history.replaceState(null, '', '/staff/roster?bus=bus-021')
+    const westRoster = render(<App />)
+    const aarav = screen.getByRole('heading', { name: mockStudent.name }).closest('li')
+    expect(within(aarav!).getByText('E-BUS-021')).toBeInTheDocument()
+    expect(within(aarav!).getByText('West Residence Shuttle')).toBeInTheDocument()
+    westRoster.unmount()
+
+    window.history.replaceState(null, '', '/staff/roster?bus=bus-012')
+    render(<App />)
+    expect(screen.queryByRole('heading', { name: mockStudent.name })).not.toBeInTheDocument()
+    expect(screen.getByText(/showing 3 of 3 students/i)).toBeInTheDocument()
+  })
+
+  it('does not count future or expired passes as active in staff summaries', () => {
+    vi.useFakeTimers()
+    try {
+      const scenarios = [
+        {
+          now: '2026-07-31T12:00:00Z',
+          validFrom: '02 Aug 2026',
+          validTo: '31 Jul 2027',
+          label: 'Not yet valid',
+          countLabel: 'Not yet valid passes',
+        },
+        {
+          now: '2026-08-01T12:00:00Z',
+          validFrom: '02 Aug 2025',
+          validTo: '31 Jul 2026',
+          label: 'Expired',
+          countLabel: 'Expired passes',
+        },
+      ]
+
+      for (const scenario of scenarios) {
+        vi.setSystemTime(new Date(scenario.now))
+        const passes = structuredClone(defaultIssuedPasses)
+        passes[0].validFrom = scenario.validFrom
+        passes[0].validTo = scenario.validTo
+        expect(saveDemoState({
+          applications: structuredClone(demoQueueApplications),
+          issuedPasses: passes,
+        }).ok).toBe(true)
+
+        window.history.replaceState(null, '', '/staff/roster')
+        const rosterView = render(<App />)
+        const meera = screen.getByRole('heading', { name: 'Meera Iyer' }).closest('li')
+        expect(within(meera!).getByText(scenario.label)).toBeInTheDocument()
+        rosterView.unmount()
+
+        window.history.replaceState(null, '', '/staff')
+        render(<App />)
+        expect(screen.getByText('Active passes').parentElement).toHaveTextContent('0')
+        expect(screen.getByText(scenario.countLabel).parentElement).toHaveTextContent('1')
+        cleanup()
+
+        window.history.replaceState(null, '', '/staff/buses')
+        render(<App />)
+        const assignedBusCard = screen.getByRole('heading', { name: 'E-BUS-012' }).closest('li')
+        expect(within(assignedBusCard!).getByText('Active passes').parentElement).toHaveTextContent('0')
+        expect(within(assignedBusCard!).getByText(scenario.countLabel).parentElement).toHaveTextContent('1')
+        cleanup()
+      }
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('persists and restores application history and a linked issued pass after provider remount', async () => {
     const user = userEvent.setup()
     render(
@@ -719,6 +835,7 @@ describe('staff transport portal', () => {
     const firstRender = render(<App />)
     await user.click(screen.getByRole('button', { name: /reset demo data/i }))
     expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent(/prototype data was reset successfully/i)
     firstRender.unmount()
 
     window.history.replaceState(null, '', '/staff')
@@ -757,6 +874,32 @@ describe('staff transport portal', () => {
     expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBeNull()
     expect(screen.getByText('Under review').parentElement).toHaveTextContent('1')
     expect(screen.getByText('Pending passes').parentElement).toHaveTextContent('2')
+    expect(screen.getByRole('status')).toHaveTextContent(/prototype data was reset successfully/i)
+  })
+
+  it('does not clear an external update when a stale tab attempts a reset', async () => {
+    const user = userEvent.setup()
+    expect(
+      saveDemoState({
+        applications: structuredClone(demoQueueApplications),
+        issuedPasses: structuredClone(defaultIssuedPasses),
+      }).ok,
+    ).toBe(true)
+    const initialSnapshot = window.localStorage.getItem('mangalam-ebus-demo-state')!
+    const externalSnapshot = JSON.stringify({
+      ...JSON.parse(initialSnapshot),
+      savedAt: 'updated-in-another-tab',
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    window.history.replaceState(null, '', '/staff')
+
+    render(<App />)
+    window.localStorage.setItem('mangalam-ebus-demo-state', externalSnapshot)
+    await user.click(screen.getByRole('button', { name: /reset demo data/i }))
+
+    expect(screen.getByRole('status')).toHaveTextContent(/changed in another tab.*reload/i)
+    expect(screen.queryByText(/prototype data was reset successfully/i)).not.toBeInTheDocument()
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBe(externalSnapshot)
   })
 
   it('searches the assigned-bus roster by student ID and name', async () => {
@@ -826,12 +969,12 @@ describe('staff transport portal', () => {
 
     for (const bus of mockStaffBuses) {
       const busStudents = mockStaffStudents.filter((student) => student.busId === bus.id)
-      const statusCounts: Record<'active' | 'pending' | 'review', number> = busStudents.reduce(
+      const statusCounts: Record<StudentStatus, number> = busStudents.reduce(
         (counts, student) => {
           counts[student.passStatus] += 1
           return counts
         },
-        { active: 0, pending: 0, review: 0 },
+        { active: 0, pending: 0, review: 0, expired: 0, not_yet_valid: 0, invalid: 0 },
       )
 
       const card = screen.getByRole('heading', { name: bus.identifier }).closest('li')
@@ -949,6 +1092,22 @@ describe('staff transport portal', () => {
     expect(screen.getByTestId('history-count')).toHaveTextContent('6')
   })
 
+  it('enforces supported route combinations in the provider', async () => {
+    const user = userEvent.setup()
+    render(
+      <StudentApplicationProvider>
+        <ApplicationTransitionHarness />
+      </StudentApplicationProvider>,
+    )
+
+    await user.click(screen.getByRole('button', { name: /create unsupported application/i }))
+    expect(screen.getByTestId('result')).toHaveTextContent('blocked:unsupported')
+    expect(window.localStorage.getItem('mangalam-ebus-demo-state')).toBeNull()
+
+    await user.click(screen.getByRole('button', { name: /^create application$/i }))
+    expect(screen.getByTestId('status')).toHaveTextContent('submitted')
+  })
+
   it('requires a meaningful explanation before requesting corrections', async () => {
     const user = userEvent.setup()
 
@@ -988,6 +1147,7 @@ describe('staff transport portal', () => {
       description: application.nextAction,
       date: '20 Oct 2026',
     })
+
     const passes = structuredClone(defaultIssuedPasses).filter(
       (pass) => pass.studentId !== application.studentId,
     )
@@ -998,12 +1158,53 @@ describe('staff transport portal', () => {
     await user.click(screen.getByRole('button', { name: /edit and resubmit/i }))
     expect(screen.getByRole('heading', { name: /update your demonstration application/i })).toBeInTheDocument()
 
+    await user.clear(screen.getByLabelText(/preferred route/i))
+    await user.type(screen.getByLabelText(/preferred route/i), 'South Gate Connector')
     await user.clear(screen.getByLabelText(/boarding point/i))
     await user.type(screen.getByLabelText(/boarding point/i), 'Library Plaza Stop')
     await user.click(screen.getByRole('button', { name: /resubmit demo application/i }))
 
     expect(screen.getByRole('heading', { name: /application status/i })).toBeInTheDocument()
     expect(screen.getByText(/application resubmitted/i)).toBeInTheDocument()
+  })
+
+  it('allows corrections for unsupported saved routes but blocks approval until corrected', async () => {
+    const user = userEvent.setup()
+    const applications = structuredClone(demoQueueApplications)
+    const invalidApplication = applications[0]
+    invalidApplication.studentId = mockStudent.studentId
+    invalidApplication.studentName = mockStudent.name
+    invalidApplication.boardingPoint = 'Library Plaza Stop'
+    expect(
+      saveDemoState({
+        applications,
+        issuedPasses: structuredClone(defaultIssuedPasses),
+      }).ok,
+    ).toBe(true)
+
+    render(<SharedStudentStaffWorkflowHarness />)
+    const queueItem = screen.getByRole('heading', { name: mockStudent.name }).closest('li')
+    await user.click(within(queueItem!).getByRole('link', { name: /view application/i }))
+
+    await user.click(screen.getByRole('button', { name: /approve demo application/i }))
+    expect(screen.getByRole('alert')).toHaveTextContent(/unsupported route and boarding point/i)
+    expect(screen.getByText('Under Review')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/review note/i), 'Please choose a valid stop for this route.')
+    await user.click(screen.getByRole('button', { name: /request corrections/i }))
+    expect(screen.getByText('Status: Corrections Requested')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /edit and resubmit/i }))
+    await user.clear(screen.getByLabelText(/preferred route/i))
+    await user.type(screen.getByLabelText(/preferred route/i), 'South Gate Connector')
+    await user.clear(screen.getByLabelText(/boarding point/i))
+    await user.type(screen.getByLabelText(/boarding point/i), 'Library Plaza Stop')
+    await user.click(screen.getByRole('button', { name: /resubmit demo application/i }))
+    expect(screen.getByText('Status: Submitted')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /start review/i }))
+    await user.click(screen.getByRole('button', { name: /approve demo application/i }))
+    expect(screen.getByText('Status: Approved')).toBeInTheDocument()
   })
 
   it('keeps application references unique and ignores missing application references', async () => {
@@ -1055,7 +1256,7 @@ describe('staff transport portal', () => {
     expect(new Set(allReferences).size).toBe(allReferences?.length)
   })
 
-  it('rejects unapproved, mismatched, unsupported, and invalid boarding-point issuance attempts without mutating state', async () => {
+  it('rejects unsupported application combinations and invalid pass issuance attempts without mutating state', async () => {
     const user = userEvent.setup()
     const scenarios = ['unapproved', 'route-mismatch', 'unsupported-bus', 'invalid-boarding-point'] as const
 
@@ -1075,10 +1276,18 @@ describe('staff transport portal', () => {
       expect(screen.getByTestId('issued-count')).toHaveTextContent(String(beforeIssuedCount))
       expect(screen.getByTestId('history-count')).toHaveTextContent(String(beforeHistoryCount))
       expect(screen.getByTestId('status')).toHaveTextContent(
-        scenario === 'unapproved' ? 'submitted' : 'approved',
+        scenario === 'unapproved'
+          ? 'submitted'
+          : scenario === 'invalid-boarding-point'
+            ? 'missing'
+            : 'approved',
       )
       expect(screen.getByTestId('actual-status')).toHaveTextContent(
-        scenario === 'unapproved' ? 'submitted' : 'approved',
+        scenario === 'unapproved'
+          ? 'submitted'
+          : scenario === 'invalid-boarding-point'
+            ? 'missing'
+            : 'approved',
       )
       expect(screen.getByTestId('actual-history-count')).toHaveTextContent(String(beforeHistoryCount))
       unmount()
